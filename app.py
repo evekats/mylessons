@@ -210,11 +210,59 @@ def show_finance_section():
             unpaid = unpaid.sort_values('temp_dt').drop(columns=['temp_dt'])
         if unpaid.empty: st.success("Όλα εξοφλημένα!")
         for i, r in unpaid.iterrows():
-            c1, c2, c3, c4 = st.columns([3, 1, 1.5, 2.5])
+            c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
             c1.write(f"**{r['Μαθητής']}** ({r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']})")
-            c2.write(f"**{r['Ποσό']}€**")
-            pay_val = c3.number_input("Ποσό", min_value=0.0, value=float(r['Ποσό']), key=f"pay_{i}", step=5.0)
+            
+            # --- ΕΠΕΞΕΡΓΑΣΙΑ ΑΡΧΙΚΟΥ ΠΟΣΟΥ ---
+            if st.session_state.get(f"edit_{i}"):
+                new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), key=f"new_{i}", step=1.0)
+                if c2.button("💾", key=f"sv_{i}"):
+                    st.session_state.df_l.at[i, 'Ποσό'] = float(new_amt)
+                    st.session_state[f"edit_{i}"] = False
+                    save_all(); st.rerun()
+            else:
+                c2.write(f"**{r['Ποσό']}€**")
+                if c2.button("✏️", key=f"ed_{i}"):
+                    st.session_state[f"edit_{i}"] = True
+                    st.rerun()
+            
+            # --- ΠΕΔΙΟ ΠΛΗΡΩΜΗΣ (Ενημερώνεται αυτόματα μετά το Save) ---
+            pay_val = c3.number_input("Πληρωμή", min_value=0.0, value=float(r['Ποσό']), key=f"pay_{i}", step=5.0)
             cp1, cp2 = c4.columns(2)
+            
+            if cp1.button("✔️", key=f"ok_{i}"):
+                # Υπολογισμός διαφοράς (αν έδωσε παραπάνω ή λιγότερα)
+                surplus = float(pay_val) - float(r['Ποσό'])
+                st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
+                
+                if surplus != 0:
+                    # Δημιουργία εγγραφής για το υπόλοιπο ή το χρέος
+                    new_adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], r['Ώρα'], r['Λήξη'], -surplus, "Ολοκληρώθηκε", "Όχι", f"adj_{datetime.now().timestamp()}"]], columns=st.session_state.df_l.columns)
+                    st.session_state.df_l = pd.concat([st.session_state.df_l, new_adj], ignore_index=True)
+                
+                # Αυτόματος συμψηφισμός στην καρτέλα του μαθητή
+                stu_mask = (st.session_state.df_l['Μαθητής'] == r['Μαθητής']) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")
+                u_idx = st.session_state.df_l[stu_mask].index.tolist()
+                
+                creds = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) < 0]
+                debts = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) > 0]
+                
+                for c in creds:
+                    c_val = abs(float(st.session_state.df_l.at[c, 'Ποσό']))
+                    for d in debts:
+                        d_val = float(st.session_state.df_l.at[d, 'Ποσό'])
+                        if st.session_state.df_l.at[d, 'Πληρώθηκε'] == "Ναι": continue
+                        if c_val >= d_val:
+                            st.session_state.df_l.at[d, 'Πληρώθηκε'] = "Ναι"; c_val -= d_val
+                        else:
+                            st.session_state.df_l.at[d, 'Ποσό'] = round(d_val - c_val, 2); c_val = 0; break
+                    if c_val <= 0.01: st.session_state.df_l.at[c, 'Πληρώθηκε'] = "Ναι"
+                    else: st.session_state.df_l.at[c, 'Ποσό'] = -round(c_val, 2)
+                
+                save_all(); st.rerun()
+                
+            if cp2.button("❌", key=f"can_{i}"):
+                st.session_state.df_l.at[i, 'Κατάσταση'] = "Ακυρώθηκε"; save_all(); st.rerun()
             if cp1.button("✔️", key=f"ok_{i}"):
                 surplus = float(pay_val) - float(r['Ποσό'])
                 st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
