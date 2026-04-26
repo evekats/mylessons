@@ -98,6 +98,7 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
+        # 1. ΚΛΕΙΔΩΜΑ ΠΑΡΕΛΘΟΝΤΟΣ: Αν ένα "Προγραμματισμένο" πέρασε, το κάνουμε "Ολοκληρώθηκε"
         for i, r in st.session_state.df_l.iterrows():
             if r['Κατάσταση'] == "Προγραμματισμένο":
                 try:
@@ -106,11 +107,13 @@ def auto_sync():
                         st.session_state.df_l.at[i, 'Κατάσταση'] = "Ολοκληρώθηκε"
                 except: pass
 
+        # 2. ΣΚΟΥΠΙΣΜΑ: Διαγράφουμε όλα τα μελλοντικά μαθήματα από την εφαρμογή
         st.session_state.df_l = st.session_state.df_l[
             (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
             (st.session_state.df_l['UID'].str.startswith('manual_'))
         ].reset_index(drop=True)
 
+        # 3. ΣΑΡΩΣΗ & ΠΡΟΣΘΗΚΗ: Φέρνουμε όλα τα φρέσκα δεδομένα από το iCloud
         start_limit = now - timedelta(days=7)
         end_limit = now + timedelta(days=30)
         new_lessons = []
@@ -133,12 +136,15 @@ def auto_sync():
                     price = round(((end - start).total_seconds() / 3600) * float(match['Τιμή']), 2)
 
                     if now < end:
+                        # Είναι στο μέλλον: Το προσθέτουμε ως Προγραμματισμένο
                         new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, "Προγραμματισμένο", "Όχι", uid])
                     else:
+                        # Είναι στο παρελθόν: Αν για κάποιο λόγο δεν υπάρχει ήδη στα ολοκληρωμένα, το βάζουμε
                         exists = not st.session_state.df_l[st.session_state.df_l['UID'] == uid].empty
                         if not exists:
                             new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, "Ολοκληρώθηκε", "Όχι", uid])
 
+        # Ενώνουμε τα παλιά (που κρατήσαμε) με τα καινούργια
         if new_lessons:
             new_df = pd.DataFrame(new_lessons, columns=st.session_state.df_l.columns)
             st.session_state.df_l = pd.concat([st.session_state.df_l, new_df], ignore_index=True)
@@ -177,6 +183,7 @@ def show_finance_section():
     st.header("💰 Οικονομικά")
     tab_p, tab_r = st.tabs(["💵 Πληρωμές", "📈 Μηνιαία Αναφορά"])
     with tab_p:
+        # ΧΕΙΡΟΚΙΝΗΤΗ ΠΡΟΣΘΗΚΗ ΜΑΘΗΜΑΤΟΣ
         if not st.session_state.df_s.empty:
             with st.expander("➕ Προσθήκη Μαθήματος (Εκτός iCloud)"):
                 with st.form("manual_lesson_form"):
@@ -190,16 +197,21 @@ def show_finance_section():
                         ts, te = (t_m.split("-")[0].strip(), t_m.split("-")[1].strip()) if "-" in t_m else (t_m, t_m)
                         new_l = pd.DataFrame([[sel_m, d_m, ts, te, p_m, "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
-                        save_all(); st.success("Το μάθημα προστέθηκε!"); st.rerun()
+                        save_all()
+                        st.success("Το μάθημα προστέθηκε!")
+                        st.rerun()
 
         st.divider()
         
+        # --- ΕΚΚΑΘΑΡΙΣΗ INDEX ΠΡΟΛΗΠΤΙΚΑ ---
         st.session_state.df_l = st.session_state.df_l.reset_index(drop=True)
+        
         unpaid = st.session_state.df_l[(st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι") & (st.session_state.df_l['Ποσό'] > 0)].copy()
         
         if unpaid.empty: 
             st.success("Όλα εξοφλημένα!")
         else:
+            # ΤΑΞΙΝΟΜΗΣΗ
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt').drop(columns=['temp_dt'])
 
@@ -207,6 +219,7 @@ def show_finance_section():
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
                 c1.write(f"**{r['Μαθητής']}** ({r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']})")
                 
+                # --- ΕΠΕΞΕΡΓΑΣΙΑ ΑΡΧΙΚΟΥ ΠΟΣΟΥ ---
                 if st.session_state.get(f"edit_{i}"):
                     new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), key=f"new_{i}", step=1.0)
                     if c2.button("💾", key=f"sv_{i}"):
@@ -264,31 +277,40 @@ def show_finance_section():
             df_m['y'] = df_m['Ημερομηνία'].apply(lambda x: int(x.split('/')[2]) if '/' in str(x) else 0)
             df_f = df_m[(df_m['m'] == month) & (df_m['y'] == year)]
             
-            total_income = df_f['Ποσό'].sum()
-            total_hours = 0.0
-            
-            for _, r in df_f.iterrows():
-                try:
-                    t1 = datetime.strptime(str(r['Ώρα']).strip(), "%H:%M")
-                    t2 = datetime.strptime(str(r['Λήξη']).strip(), "%H:%M")
-                    if t2 < t1: t2 += timedelta(days=1)
-                    total_hours += (t2 - t1).total_seconds() / 3600.0
-                except:
-                    pass
-            
-            st.divider()
-            col_met1, col_met2 = st.columns(2)
-            col_met1.metric("💶 Συνολικά Έσοδα Μήνα", f"{total_income:.2f} €")
-            col_met2.metric("⏱️ Συνολικές Ώρες", f"{total_hours:.1f}")
-            st.divider()
-            
-            summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
-            for _, row in summary.iterrows():
-                with st.expander(f"{row['Μαθητής']} | {row['Ημερομηνία']} Μαθήματα | Σύνολο: {row['Ποσό']}€"):
-                    for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
-                        st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']} ({det['Ώρα']} - {det['Λήξη']}): {det['Ποσό']}€")
+            if not df_f.empty:
+                # --- ΔΥΝΑΜΙΚΟ ΦΙΛΤΡΟ ΜΑΘΗΤΩΝ ---
+                unique_students = df_f['Μαθητής'].unique().tolist()
+                selected_students = st.multiselect("🔍 Επιλογή Μαθητών (Υπολογισμός Συνόλων):", options=unique_students, default=unique_students)
+                
+                df_filtered = df_f[df_f['Μαθητής'].isin(selected_students)]
+                
+                total_income = df_filtered['Ποσό'].sum()
+                total_hours = 0.0
+                
+                for _, r in df_filtered.iterrows():
+                    try:
+                        t1 = datetime.strptime(str(r['Ώρα']).strip(), "%H:%M")
+                        t2 = datetime.strptime(str(r['Λήξη']).strip(), "%H:%M")
+                        if t2 < t1: t2 += timedelta(days=1)
+                        total_hours += (t2 - t1).total_seconds() / 3600.0
+                    except:
+                        pass
+                
+                st.divider()
+                col_met1, col_met2 = st.columns(2)
+                col_met1.metric("💶 Έσοδα (Επιλεγμένα)", f"{total_income:.2f} €")
+                col_met2.metric("⏱️ Ώρες (Επιλεγμένες)", f"{total_hours:.1f}")
+                st.divider()
+                
+                summary = df_filtered.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
+                for _, row in summary.iterrows():
+                    with st.expander(f"{row['Μαθητής']} | {row['Ημερομηνία']} Μαθήματα | Σύνολο: {row['Ποσό']}€"):
+                        for _, det in df_filtered[df_filtered['Μαθητής'] == row['Μαθητής']].iterrows():
+                            st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']} ({det['Ώρα']} - {det['Λήξη']}): {det['Ποσό']}€")
+            else:
+                st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα για αυτόν τον μήνα.")
         else:
-            st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα για αυτόν τον μήνα.")
+            st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα στο σύστημα.")
 
 def show_student_management():
     st.header("👥 Μαθητές")
@@ -368,9 +390,11 @@ def main():
                     if save_user(nu, np, nurl): st.success("Έτοιμο!"); st.rerun()
         return
 
+    # --- ΦΡΟΥΡΟΣ ΑΣΦΑΛΕΙΑΣ: Ελέγχει αν ο χρήστης υπάρχει ακόμα στο users.csv ---
     if st.session_state.user not in get_users()['username'].values:
         st.session_state.clear()
         st.rerun()
+    # --------------------------------------------------------------------------
 
     load_data(st.session_state.user); auto_sync()
     st.sidebar.title(f"👤 {st.session_state.user}")
