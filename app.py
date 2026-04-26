@@ -98,7 +98,7 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
-        # 1. ΚΛΕΙΔΩΜΑ ΠΑΡΕΛΘΟΝΤΟΣ: Αν ένα "Προγραμματισμένο" πέρασε, το κάνουμε "Ολοκληρώθηκε"
+        # 1. ΚΛΕΙΔΩΜΑ ΠΑΡΕΛΘΟΝΤΟΣ: Αν ένα "Προγραμματισμένο" πέρασε, το κάνουμε "Ολοκληρώθηκε" για να μην σβηστεί
         for i, r in st.session_state.df_l.iterrows():
             if r['Κατάσταση'] == "Προγραμματισμένο":
                 try:
@@ -211,7 +211,6 @@ def show_finance_section():
         if unpaid.empty: 
             st.success("Όλα εξοφλημένα!")
         else:
-            # ΤΑΞΙΝΟΜΗΣΗ
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt').drop(columns=['temp_dt'])
 
@@ -278,16 +277,18 @@ def show_finance_section():
             df_f = df_m[(df_m['m'] == month) & (df_m['y'] == year)]
             
             if not df_f.empty:
-                # --- ΔΥΝΑΜΙΚΟ ΦΙΛΤΡΟ ΜΑΘΗΤΩΝ ---
+                # --- ΔΥΝΑΜΙΚΟ ΦΙΛΤΡΟ ΜΟΝΟ ΓΙΑ ΩΡΕΣ ---
                 unique_students = df_f['Μαθητής'].unique().tolist()
-                selected_students = st.multiselect("🔍 Επιλογή Μαθητών (Υπολογισμός Συνόλων):", options=unique_students, default=unique_students)
+                selected_students = st.multiselect("🔍 Επιλογή Μαθητών (Μόνο για υπολογισμό ωρών):", options=unique_students, default=unique_students)
                 
-                df_filtered = df_f[df_f['Μαθητής'].isin(selected_students)]
+                # Υπολογισμός Εσόδων από ΟΛΟΥΣ
+                total_income = df_f['Ποσό'].sum()
                 
-                total_income = df_filtered['Ποσό'].sum()
+                # Υπολογισμός Ωρών ΜΟΝΟ από τους επιλεγμένους
+                df_hours = df_f[df_f['Μαθητής'].isin(selected_students)]
                 total_hours = 0.0
                 
-                for _, r in df_filtered.iterrows():
+                for _, r in df_hours.iterrows():
                     try:
                         t1 = datetime.strptime(str(r['Ώρα']).strip(), "%H:%M")
                         t2 = datetime.strptime(str(r['Λήξη']).strip(), "%H:%M")
@@ -298,14 +299,15 @@ def show_finance_section():
                 
                 st.divider()
                 col_met1, col_met2 = st.columns(2)
-                col_met1.metric("💶 Έσοδα (Επιλεγμένα)", f"{total_income:.2f} €")
-                col_met2.metric("⏱️ Ώρες (Επιλεγμένες)", f"{total_hours:.1f}")
+                col_met1.metric("💶 Συνολικά Έσοδα Μήνα", f"{total_income:.2f} €")
+                col_met2.metric("⏱️ Επιλεγμένες Ώρες", f"{total_hours:.1f}")
                 st.divider()
                 
-                summary = df_filtered.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
+                # Εμφάνιση λίστας με ΟΛΟΥΣ τους μαθητές του μήνα
+                summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | {row['Ημερομηνία']} Μαθήματα | Σύνολο: {row['Ποσό']}€"):
-                        for _, det in df_filtered[df_filtered['Μαθητής'] == row['Μαθητής']].iterrows():
+                        for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']} ({det['Ώρα']} - {det['Λήξη']}): {det['Ποσό']}€")
             else:
                 st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα για αυτόν τον μήνα.")
