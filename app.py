@@ -216,20 +216,40 @@ def show_finance_section():
             pay_val = c3.number_input("Ποσό", min_value=0.0, value=float(r['Ποσό']), key=f"pay_{i}", step=5.0)
             cp1, cp2 = c4.columns(2)
             if cp1.button("✔️", key=f"ok_{i}"):
-                surplus = pay_val - float(r['Ποσό'])
+                surplus = float(pay_val) - float(r['Ποσό'])
                 st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
-                if surplus > 0:
-                    others = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == r['Μαθητής']) & (st.session_state.df_l['Πληρώθηκε'] == "Όχι") & (st.session_state.df_l.index != i)]
-                    for idx in others.index:
-                        if surplus <= 0: break
-                        val = st.session_state.df_l.at[idx, 'Ποσό']
-                        if surplus >= val:
-                            st.session_state.df_l.at[idx, 'Πληρώθηκε'] = "Ναι"; surplus -= val
+                
+                # Αν έδωσε περισσότερα (υπόλοιπο) ή λιγότερα (χρέος), φτιάχνει προσωρινή εγγραφή
+                if surplus != 0:
+                    new_adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], r['Ώρα'], r['Λήξη'], -surplus, "Ολοκληρώθηκε", "Όχι", f"adj_{datetime.now().timestamp()}"]], columns=st.session_state.df_l.columns)
+                    st.session_state.df_l = pd.concat([st.session_state.df_l, new_adj], ignore_index=True)
+                    
+                # Αυτόματος συμψηφισμός (Credits vs Debts)
+                stu_mask = (st.session_state.df_l['Μαθητής'] == r['Μαθητής']) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")
+                u_idx = st.session_state.df_l[stu_mask].index.tolist()
+                
+                creds = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) < 0]
+                debts = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) > 0]
+                
+                for c in creds:
+                    c_val = abs(float(st.session_state.df_l.at[c, 'Ποσό']))
+                    for d in debts:
+                        d_val = float(st.session_state.df_l.at[d, 'Ποσό'])
+                        if st.session_state.df_l.at[d, 'Πληρώθηκε'] == "Ναι": continue
+                        
+                        if c_val >= d_val:
+                            st.session_state.df_l.at[d, 'Πληρώθηκε'] = "Ναι"
+                            c_val -= d_val
                         else:
-                            st.session_state.df_l.at[idx, 'Ποσό'] -= surplus; surplus = 0
-                    if surplus > 0:
-                        new_cr = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], "00:00", "00:00", -surplus, "Ολοκληρώθηκε", "Όχι", "credit"]], columns=st.session_state.df_l.columns)
-                        st.session_state.df_l = pd.concat([st.session_state.df_l, new_cr], ignore_index=True)
+                            st.session_state.df_l.at[d, 'Ποσό'] = round(d_val - c_val, 2)
+                            c_val = 0
+                            break
+                    
+                    if c_val <= 0.01:
+                        st.session_state.df_l.at[c, 'Πληρώθηκε'] = "Ναι"
+                    else:
+                        st.session_state.df_l.at[c, 'Ποσό'] = -round(c_val, 2)
+                
                 save_all(); st.rerun()
             if cp2.button("❌ ", key=f"can_{i}"):
                 st.session_state.df_l.at[i, 'Κατάσταση'] = "Ακυρώθηκε"; save_all(); st.rerun()
