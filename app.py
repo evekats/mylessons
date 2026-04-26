@@ -204,7 +204,10 @@ def show_finance_section():
                         st.rerun()
 
         st.divider()
-        unpaid = st.session_state.df_l[(st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι") & (st.session_state.df_l['Ποσό'] > 0)]
+        unpaid = st.session_state.df_l[(st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι") & (st.session_state.df_l['Ποσό'] > 0)].copy()
+        if not unpaid.empty:
+            unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
+            unpaid = unpaid.sort_values('temp_dt').drop(columns=['temp_dt'])
         if unpaid.empty: st.success("Όλα εξοφλημένα!")
         for i, r in unpaid.iterrows():
             c1, c2, c3, c4 = st.columns([3, 1, 1.5, 2.5])
@@ -340,7 +343,10 @@ def main():
     elif menu == "📅 Πρόγραμμα":
         st.header("📅 Πρόγραμμα")
         st.info("💡 **Σημείωση:** Χαζούλικο μου είπαμε να τα σβήνεις από το κινητό σου, μην ψάχνεις τον κάδο!!")
-        pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"]
+        pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
+        if not pend.empty:
+            pend['temp_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
+            pend = pend.sort_values('temp_dt').drop(columns=['temp_dt'])
         if pend.empty: st.success("Δεν υπάρχουν προγραμματισμένα μαθήματα.")
         for i, r in pend.iterrows():
             c1, c2, c3 = st.columns([3, 4, 2])
