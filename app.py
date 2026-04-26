@@ -48,7 +48,7 @@ def delete_user_account(username):
     if username in df['username'].values:
         df = df[df['username'] != username]
         df.to_csv(U_FILE, index=False)
-
+    
     # 2. Διαγραφή των προσωπικών του αρχείων (CSV)
     files_to_delete = [
         f"{username}_students_data.csv",
@@ -108,7 +108,10 @@ def auto_sync():
                 except: pass
 
         # 2. ΣΚΟΥΠΙΣΜΑ: Διαγράφουμε όλα τα μελλοντικά μαθήματα από την εφαρμογή
-        st.session_state.df_l = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο"].reset_index(drop=True)
+        st.session_state.df_l = st.session_state.df_l[
+            (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
+            (st.session_state.df_l['UID'].str.startswith('manual_'))
+        ].reset_index(drop=True)
 
         # 3. ΣΑΡΩΣΗ & ΠΡΟΣΘΗΚΗ: Φέρνουμε όλα τα φρέσκα δεδομένα από το iCloud
         start_limit = now - timedelta(days=7)
@@ -191,116 +194,75 @@ def show_finance_section():
                     p_m = c4.number_input("Ποσό (€)", min_value=0.0, step=5.0)
                     if st.form_submit_button("Προσθήκη"):
                         uid_m = f"manual_{datetime.now().timestamp()}"
-                        if "-" in t_m:
-                            t_start = t_m.split("-")[0].strip()
-                            t_end = t_m.split("-")[1].strip()
-                        else:
-                            t_start = t_m
-                            t_end = t_m
-                        new_l = pd.DataFrame([[sel_m, d_m, t_start, t_end, p_m, "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
+                        ts, te = (t_m.split("-")[0].strip(), t_m.split("-")[1].strip()) if "-" in t_m else (t_m, t_m)
+                        new_l = pd.DataFrame([[sel_m, d_m, ts, te, p_m, "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
                         save_all()
                         st.success("Το μάθημα προστέθηκε!")
                         st.rerun()
 
         st.divider()
+        
+        # --- ΕΚΚΑΘΑΡΙΣΗ INDEX ΠΡΟΛΗΠΤΙΚΑ ---
+        st.session_state.df_l = st.session_state.df_l.reset_index(drop=True)
+        
         unpaid = st.session_state.df_l[(st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι") & (st.session_state.df_l['Ποσό'] > 0)].copy()
-        if not unpaid.empty:
+        
+        if unpaid.empty: 
+            st.success("Όλα εξοφλημένα!")
+        else:
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt').drop(columns=['temp_dt'])
-        if unpaid.empty: st.success("Όλα εξοφλημένα!")
-        for i, r in unpaid.iterrows():
-            c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
-            c1.write(f"**{r['Μαθητής']}** ({r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']})")
-            
-            # --- ΕΠΕΞΕΡΓΑΣΙΑ ΑΡΧΙΚΟΥ ΠΟΣΟΥ ---
-            if st.session_state.get(f"edit_{i}"):
-                new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), key=f"new_{i}", step=1.0)
-                if c2.button("💾", key=f"sv_{i}"):
-                    st.session_state.df_l.at[i, 'Ποσό'] = float(new_amt)
-                    st.session_state[f"edit_{i}"] = False
+
+            for i, r in unpaid.iterrows():
+                c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
+                c1.write(f"**{r['Μαθητής']}** ({r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']})")
+                
+                # --- ΕΠΕΞΕΡΓΑΣΙΑ ΑΡΧΙΚΟΥ ΠΟΣΟΥ ---
+                if st.session_state.get(f"edit_{i}"):
+                    new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), key=f"new_{i}", step=1.0)
+                    if c2.button("💾", key=f"sv_{i}"):
+                        st.session_state.df_l.at[i, 'Ποσό'] = float(new_amt)
+                        st.session_state[f"edit_{i}"] = False
+                        save_all(); st.rerun()
+                else:
+                    c2.write(f"**{r['Ποσό']}€**")
+                    if c2.button("✏️", key=f"ed_{i}"):
+                        st.session_state[f"edit_{i}"] = True; st.rerun()
+                
+                pay_val = c3.number_input("Πληρωμή", min_value=0.0, value=float(r['Ποσό']), key=f"pay_{i}", step=5.0)
+                cp1, cp2 = c4.columns(2)
+                
+                if cp1.button("✔️", key=f"ok_{i}"):
+                    surplus = float(pay_val) - float(r['Ποσό'])
+                    st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
+                    
+                    if surplus != 0:
+                        new_adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], r['Ώρα'], r['Λήξη'], -surplus, "Ολοκληρώθηκε", "Όχι", f"adj_{datetime.now().timestamp()}_{i}"]], columns=st.session_state.df_l.columns)
+                        st.session_state.df_l = pd.concat([st.session_state.df_l, new_adj], ignore_index=True)
+                    
+                    stu_mask = (st.session_state.df_l['Μαθητής'] == r['Μαθητής']) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")
+                    u_idx = st.session_state.df_l[stu_mask].index.tolist()
+                    
+                    creds = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) < 0]
+                    debts = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) > 0]
+                    
+                    for c in creds:
+                        c_val = abs(float(st.session_state.df_l.at[c, 'Ποσό']))
+                        for d in debts:
+                            d_val = float(st.session_state.df_l.at[d, 'Ποσό'])
+                            if st.session_state.df_l.at[d, 'Πληρώθηκε'] == "Ναι": continue
+                            if c_val >= d_val:
+                                st.session_state.df_l.at[d, 'Πληρώθηκε'] = "Ναι"; c_val -= d_val
+                            else:
+                                st.session_state.df_l.at[d, 'Ποσό'] = round(d_val - c_val, 2); c_val = 0; break
+                        if c_val <= 0.01: st.session_state.df_l.at[c, 'Πληρώθηκε'] = "Ναι"
+                        else: st.session_state.df_l.at[c, 'Ποσό'] = -round(c_val, 2)
+                    
                     save_all(); st.rerun()
-            else:
-                c2.write(f"**{r['Ποσό']}€**")
-                if c2.button("✏️", key=f"ed_{i}"):
-                    st.session_state[f"edit_{i}"] = True
-                    st.rerun()
-            
-            # --- ΠΕΔΙΟ ΠΛΗΡΩΜΗΣ (Ενημερώνεται αυτόματα μετά το Save) ---
-            pay_val = c3.number_input("Πληρωμή", min_value=0.0, value=float(r['Ποσό']), key=f"pay_{i}", step=5.0)
-            cp1, cp2 = c4.columns(2)
-            
-            if cp1.button("✔️", key=f"ok_{i}"):
-                # Υπολογισμός διαφοράς (αν έδωσε παραπάνω ή λιγότερα)
-                surplus = float(pay_val) - float(r['Ποσό'])
-                st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
-                
-                if surplus != 0:
-                    # Δημιουργία εγγραφής για το υπόλοιπο ή το χρέος
-                    new_adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], r['Ώρα'], r['Λήξη'], -surplus, "Ολοκληρώθηκε", "Όχι", f"adj_{datetime.now().timestamp()}"]], columns=st.session_state.df_l.columns)
-                    st.session_state.df_l = pd.concat([st.session_state.df_l, new_adj], ignore_index=True)
-                
-                # Αυτόματος συμψηφισμός στην καρτέλα του μαθητή
-                stu_mask = (st.session_state.df_l['Μαθητής'] == r['Μαθητής']) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")
-                u_idx = st.session_state.df_l[stu_mask].index.tolist()
-                
-                creds = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) < 0]
-                debts = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) > 0]
-                
-                for c in creds:
-                    c_val = abs(float(st.session_state.df_l.at[c, 'Ποσό']))
-                    for d in debts:
-                        d_val = float(st.session_state.df_l.at[d, 'Ποσό'])
-                        if st.session_state.df_l.at[d, 'Πληρώθηκε'] == "Ναι": continue
-                        if c_val >= d_val:
-                            st.session_state.df_l.at[d, 'Πληρώθηκε'] = "Ναι"; c_val -= d_val
-                        else:
-                            st.session_state.df_l.at[d, 'Ποσό'] = round(d_val - c_val, 2); c_val = 0; break
-                    if c_val <= 0.01: st.session_state.df_l.at[c, 'Πληρώθηκε'] = "Ναι"
-                    else: st.session_state.df_l.at[c, 'Ποσό'] = -round(c_val, 2)
-                
-                save_all(); st.rerun()
-                
-            if cp2.button("❌", key=f"can_{i}"):
-                st.session_state.df_l.at[i, 'Κατάσταση'] = "Ακυρώθηκε"; save_all(); st.rerun()
-            if cp1.button("✔️", key=f"ok_{i}"):
-                surplus = float(pay_val) - float(r['Ποσό'])
-                st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
-                
-                # Αν έδωσε περισσότερα (υπόλοιπο) ή λιγότερα (χρέος), φτιάχνει προσωρινή εγγραφή
-                if surplus != 0:
-                    new_adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], r['Ώρα'], r['Λήξη'], -surplus, "Ολοκληρώθηκε", "Όχι", f"adj_{datetime.now().timestamp()}"]], columns=st.session_state.df_l.columns)
-                    st.session_state.df_l = pd.concat([st.session_state.df_l, new_adj], ignore_index=True)
                     
-                # Αυτόματος συμψηφισμός (Credits vs Debts)
-                stu_mask = (st.session_state.df_l['Μαθητής'] == r['Μαθητής']) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")
-                u_idx = st.session_state.df_l[stu_mask].index.tolist()
-                
-                creds = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) < 0]
-                debts = [x for x in u_idx if float(st.session_state.df_l.at[x, 'Ποσό']) > 0]
-                
-                for c in creds:
-                    c_val = abs(float(st.session_state.df_l.at[c, 'Ποσό']))
-                    for d in debts:
-                        d_val = float(st.session_state.df_l.at[d, 'Ποσό'])
-                        if st.session_state.df_l.at[d, 'Πληρώθηκε'] == "Ναι": continue
-                        
-                        if c_val >= d_val:
-                            st.session_state.df_l.at[d, 'Πληρώθηκε'] = "Ναι"
-                            c_val -= d_val
-                        else:
-                            st.session_state.df_l.at[d, 'Ποσό'] = round(d_val - c_val, 2)
-                            c_val = 0
-                            break
-                    
-                    if c_val <= 0.01:
-                        st.session_state.df_l.at[c, 'Πληρώθηκε'] = "Ναι"
-                    else:
-                        st.session_state.df_l.at[c, 'Ποσό'] = -round(c_val, 2)
-                
-                save_all(); st.rerun()
-            if cp2.button("❌ ", key=f"can_{i}"):
-                st.session_state.df_l.at[i, 'Κατάσταση'] = "Ακυρώθηκε"; save_all(); st.rerun()
+                if cp2.button("❌", key=f"can_{i}"):
+                    st.session_state.df_l.at[i, 'Κατάσταση'] = "Ακυρώθηκε"; save_all(); st.rerun()
 
     with tab_r:
         gr_tz = ZoneInfo('Europe/Athens')
@@ -377,7 +339,7 @@ def show_student_management():
 def main():
     st.set_page_config(page_title="Teacher App Pro", layout="wide", page_icon="📚")
     if "auth" not in st.session_state: st.session_state.auth = False
-
+    
     if not st.session_state.auth:
         st.title("📚 MyLessons")
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -411,18 +373,25 @@ def main():
     elif menu == "📅 Πρόγραμμα":
         st.header("📅 Πρόγραμμα")
         st.info("💡 **Σημείωση:** Χαζούλικο μου είπαμε να τα σβήνεις από το κινητό σου, μην ψάχνεις τον κάδο!!")
+        
+        st.session_state.df_l = st.session_state.df_l.reset_index(drop=True)
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
-        if not pend.empty:
+        
+        if pend.empty: 
+            st.success("Δεν υπάρχουν προγραμματισμένα μαθήματα.")
+        else:
             pend['temp_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             pend = pend.sort_values('temp_dt').drop(columns=['temp_dt'])
-        if pend.empty: st.success("Δεν υπάρχουν προγραμματισμένα μαθήματα.")
-        for i, r in pend.iterrows():
-            c1, c2, c3 = st.columns([3, 4, 2])
-            c1.write(f"**{r['Μαθητής']}**"); c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']}")
-            s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
-            if not s_match.empty:
-                msg = urllib.parse.quote(f"Υπενθυμίζω το αυριανό μας μάθημα στις {r['Ώρα']}. Καλή σας ημέρα!")
-                c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={msg}")
+
+            for i, r in pend.iterrows():
+                c1, c2, c3 = st.columns([3, 4, 2])
+                c1.write(f"**{r['Μαθητής']}**")
+                c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']}")
+                s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
+                if not s_match.empty:
+                    msg = urllib.parse.quote(f"Υπενθυμίζω το αυριανό μας μάθημα στις {r['Ώρα']}. Καλή σας ημέρα!")
+                    c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={msg}")
+                    
     elif menu == "💰 Οικονομικά": show_finance_section()
     elif menu == "👥 Μαθητές": show_student_management()
     elif menu == "⚙️ Ρυθμίσεις":
@@ -434,10 +403,10 @@ def main():
                 if new_p1 and new_p1 != new_p2: st.error("Λάθος κωδικός!")
                 elif update_user_data(st.session_state.user, new_url, new_p1 if new_p1 else None):
                     st.session_state.cal_url = new_url; st.success("Αποθηκεύτηκε!"); st.rerun()
-
+        
         st.divider()
         st.subheader("🚨 Διαγραφή Λογαριασμού")
-        if st.checkbox("H διαγραφή είναι οριστική και τα δεδομένα μου θα χαθούν."):
+        if st.checkbox("Κατανοώ ότι η διαγραφή είναι οριστική και τα δεδομένα μου θα χαθούν."):
             if st.button("🗑️ Οριστική Διαγραφή", type="primary"):
                 delete_user_account(st.session_state.user)
                 st.session_state.clear()
