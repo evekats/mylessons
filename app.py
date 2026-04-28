@@ -260,9 +260,9 @@ def show_finance_section():
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']}: {det['Ποσό']}€")
 
 def show_student_management():
-    st.header("👥 Μαθητές")
+    st.header("👥 Διαχείριση Μαθητών")
     
-    # CSS για Clickable Links (κουμπιά που μοιάζουν με link)
+    # CSS για Link Style στα ονόματα
     st.markdown("""
         <style>
         div.stButton > button:first-child {
@@ -273,53 +273,76 @@ def show_student_management():
         </style>
     """, unsafe_allow_html=True)
 
-    if 'selected_student' not in st.session_state:
-        st.session_state.selected_student = None
+    # --- ΣΥΝΑΡΤΗΣΗ ΓΙΑ ΤΟ ΠΑΡΑΘΥΡΟ (POP-UP) ---
+    @st.dialog("📂 Καρτέλα Μαθητή")
+    def open_student_card(student_name):
+        st.subheader(f"👤 {student_name}")
+        t1, t2, t3 = st.tabs(["💰 Οικονομικά", "📝 Σημειώσεις", "📜 Ιστορικό"])
+        
+        with t1:
+            unpaid_df = st.session_state.df_l[
+                (st.session_state.df_l['Μαθητής'] == student_name) & 
+                (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & 
+                (st.session_state.df_l['Πληρώθηκε'] == "Όχι")
+            ]
+            balance = unpaid_df['Ποσό'].sum()
+            st.metric("Ανεξόφλητο Υπόλοιπο", f"{balance} €")
+            if balance > 0:
+                if st.button(f"Εξόφληση ({len(unpaid_df)} μαθήματα)"):
+                    st.session_state.df_l.loc[
+                        (st.session_state.df_l['Μαθητής'] == student_name) & 
+                        (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
+                    save_all()
+                    st.rerun()
+        
+        with t2:
+            with st.form("dialog_note", clear_on_submit=True):
+                n_txt = st.text_area("Νέα Σημείωση")
+                n_ex = st.text_input("Διαγώνισμα")
+                if st.form_submit_button("Αποθήκευση"):
+                    d_n = datetime.now(ZoneInfo('Europe/Athens')).strftime('%d/%m/%Y')
+                    new_entry = pd.DataFrame([[student_name, d_n, n_txt, "", n_ex]], columns=st.session_state.df_n.columns)
+                    st.session_state.df_n = pd.concat([st.session_state.df_n, new_entry], ignore_index=True)
+                    save_all()
+                    st.rerun()
+            
+            notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == student_name].iloc[::-1]
+            for _, nr in notes.iterrows():
+                with st.expander(f"📅 {nr['Ημερομηνία']}"):
+                    st.write(nr['Σημειώσεις'])
+                    if nr['Διαγωνίσματα']: st.error(f"🚩 {nr['Διαγωνίσματα']}")
 
+        with t3:
+            hist = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == student_name]
+            st.dataframe(hist.iloc[::-1].drop(columns=['UID'], errors='ignore'), use_container_width=True)
+
+    # --- ΚΥΡΙΩΣ ΛΙΣΤΑ ΜΑΘΗΤΩΝ ---
     with st.expander("➕ Προσθήκη Μαθητή"):
-        with st.form("add_s"):
+        with st.form("add_s_new"):
             n, ph, pr = st.text_input("Όνομα"), st.text_input("Τηλέφωνο"), st.number_input("Τιμή/ώρα", 0)
             if st.form_submit_button("Αποθήκευση"):
                 st.session_state.df_s = pd.concat([st.session_state.df_s, pd.DataFrame([[n, ph, pr]], columns=st.session_state.df_s.columns)], ignore_index=True)
                 save_all(); st.rerun()
 
+    st.write("---")
     for i, r in st.session_state.df_s.iterrows():
         c1, c2, c3, c4, c5 = st.columns([2.5, 2, 1.5, 0.5, 0.5])
-        # Ενέργεια: Click στο όνομα για άνοιγμα καρτέλας
-        if c1.button(f"👤 {r['Όνομα']}", key=f"n_btn_{i}"):
-            st.session_state.selected_student = r['Όνομα']
-            st.rerun()
+        
+        # Ενέργεια: Άνοιγμα Pop-up
+        if c1.button(f"👤 {r['Όνομα']}", key=f"pop_{i}"):
+            open_student_card(r['Όνομα'])
+            
         c2.write(r['Τηλέφωνο'])
         c3.write(f"{r['Τιμή']}€/ώρα")
-        if c4.button("✏️", key=f"e_{i}"): st.session_state.edit_idx = i; st.rerun()
-        if c5.button("🗑️", key=f"d_{i}"):
-            st.session_state.df_l = st.session_state.df_l[st.session_state.df_l['Μαθητής'] != r['Όνομα']]
+        
+        if c4.button("✏️", key=f"ed_{i}"):
+            st.session_state.edit_idx = i # Εδώ μπορείς να βάλεις ένα άλλο dialog για edit
+            st.rerun()
+            
+        if c5.button("🗑️", key=f"del_{i}"):
             st.session_state.df_s = st.session_state.df_s.drop(i).reset_index(drop=True)
             save_all(); st.rerun()
-    
-    st.divider()
-    
-    # Εμφάνιση καρτέλας αν έχει επιλεγεί μαθητής
-    if st.session_state.selected_student:
-        sel = st.session_state.selected_student
-        col_t, col_cl = st.columns([0.8, 0.2])
-        col_t.subheader(f"📂 Καρτέλα: {sel}")
-        if col_cl.button("❌ Κλείσιμο"):
-            st.session_state.selected_student = None
-            st.rerun()
 
-        t1, t2, t3 = st.tabs(["💰 Οικονομικά & SMS", "📝 Σημειώσεις & Αρχεία", "📜 Ιστορικό"])
-        with t2:
-            with st.form("n_f", clear_on_submit=True):
-                note, exam = st.text_area("Σημειώσεις"), st.text_input("Διαγώνισμα")
-                if st.form_submit_button("Αποθήκευση"):
-                    d_n = datetime.now(ZoneInfo('Europe/Athens')).strftime('%d/%m/%Y')
-                    new_n = pd.DataFrame([[sel, d_n, note, "", exam]], columns=st.session_state.df_n.columns)
-                    st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True); save_all(); st.rerun()
-            for _, nr in st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1].iterrows():
-                with st.expander(f"📅 {nr['Ημερομηνία']}"):
-                    st.write(nr['Σημειώσεις'])
-                    if nr['Διαγωνίσματα']: st.error(f"🚩 {nr['Διαγωνίσματα']}")
 
 # --- ΣΥΝΑΡΤΗΣΗ ΡΥΘΜΙΣΕΩΝ ---
 def show_settings():
