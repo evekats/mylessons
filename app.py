@@ -1,3 +1,11 @@
+Έλαβα τον κώδικα και τις οδηγίες σου. Θα προχωρήσω **ακριβώς** στις αλλαγές που ζήτησες, διατηρώντας τη δομή και τη λογική του υπόλοιπου κώδικα ανέπαφη.
+### Οι αλλαγές που ενσωματώνω:
+ 1. **Drag & Drop Upload:** Στην καρτέλα μαθητή (Σημειώσεις), πρόσθεσα τη δυνατότητα st.file_uploader. Τα αρχεία θα αποθηκεύονται τοπικά σε έναν φάκελο uploads (χρειάζεται να υπάρχει στον server σου) και το link θα δημιουργείται αυτόματα.
+ 2. **Αναλυτικό Μήνυμα SMS:** Το SMS στην αναφορά πλέον υπολογίζει: *Σύνολο Μαθημάτων Μήνα*, *Πληρωμένα* και *Υπόλοιπο*.
+ 3. **Ταξινόμηση:** * Στις **Πληρωμές** τα μαθήματα εμφανίζονται με φθίνουσα σειρά (τα πιο πρόσφατα πάνω).
+   * Στο **Πρόγραμμα** εμφανίζονται με αύξουσα σειρά (τα επόμενα που έρχονται πρώτα).
+Ορίστε ο κώδικας με τις διορθώσεις:
+```python
 import streamlit as st
 import pandas as pd
 import gspread
@@ -9,6 +17,11 @@ from datetime import datetime, timedelta
 import urllib.parse
 import hashlib
 from zoneinfo import ZoneInfo
+
+# --- Φάκελος για Uploads ---
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
 
 # --- ΣΥΝΔΕΣΗ ΜΕ GOOGLE SHEETS (mylessons) ---
 def get_gsheet_client():
@@ -221,7 +234,8 @@ def show_finance_section():
         if unpaid.empty: st.success("Όλα εξοφλημένα!")
         else:
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
-            unpaid = unpaid.sort_values('temp_dt').drop(columns=['temp_dt'])
+            # --- ΤΑΞΙΝΟΜΗΣΗ ΦΘΙΝΟΥΣΑ (νεότερα πάνω) ---
+            unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
                 c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
@@ -261,13 +275,18 @@ def show_finance_section():
                 summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f}€"):
-                        # --- ΠΡΟΣΘΗΚΗ SMS REMINDER ΣΤΗ ΜΗΝΙΑΙΑ ΑΝΑΦΟΡΑ ---
                         s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == row['Μαθητής']]
                         if not s_info.empty:
-                            unpaid_month = df_f[(df_f['Μαθητής'] == row['Μαθητής']) & (df_f['Πληρώθηκε'] == 'Όχι')]['Ποσό'].sum()
-                            if unpaid_month > 0:
-                                txt = urllib.parse.quote(f"Καλησπέρα, το οφειλόμενο ποσό για τα μαθήματα του μήνα είναι {unpaid_month:.2f}€.")
-                                st.link_button(f"📱 SMS Reminder ({unpaid_month:.2f}€)", f"sms:{s_info.iloc[0]['Τηλέφωνο']}?body={txt}")
+                            # --- ΑΝΑΛΥΤΙΚΟ SMS (ΣΥΝΟΛΟ - ΠΛΗΡΩΜΕΝΑ - ΥΠΟΛΟΙΠΟ) ---
+                            total_month = row['Ημερομηνία']
+                            paid_month = len(df_f[(df_f['Μαθητής'] == row['Μαθητής']) & (df_f['Πληρώθηκε'] == 'Ναι')])
+                            unpaid_amt = df_f[(df_f['Μαθητής'] == row['Μαθητής']) & (df_f['Πληρώθηκε'] == 'Όχι')]['Ποσό'].sum()
+                            
+                            sms_text = (f"Καλησπέρα σας, αυτόν τον μήνα έχουν γίνει συνολικά {total_month} μαθήματα, "
+                                        f"εκ των οποίων έχουν πληρωθεί τα {paid_month}. "
+                                        f"Το υπόλοιπο ποσό είναι {unpaid_amt:.2f}€.")
+                            txt_encoded = urllib.parse.quote(sms_text)
+                            st.link_button(f"📱 Αποστολή Αναφοράς SMS", f"sms:{s_info.iloc[0]['Τηλέφωνο']}?body={txt_encoded}")
                         
                         for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']} ({det['Ώρα']}-{det['Λήξη']}): {det['Ποσό']:.2f}€")
@@ -334,20 +353,34 @@ def show_student_management():
                 st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
                 save_all(); st.rerun()
         with t2:
-            # --- ΕΠΑΝΑΦΟΡΑ ΑΡΧΕΙΩΝ & ΣΗΜΕΙΩΣΕΩΝ ---
+            # --- DRAG & DROP UPLOAD & ΣΗΜΕΙΩΣΕΙΣ ---
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις")
-                ar = st.text_input("Link Αρχείου (Drive/Dropbox)")
                 ex = st.text_input("Διαγώνισμα")
+                uploaded_file = st.file_uploader("Σύρετε ή επιλέξτε αρχείο για ανέβασμα", type=["pdf", "png", "jpg", "docx"])
+                manual_link = st.text_input("Ή επικολλήστε Link Αρχείου (Drive/Dropbox)")
+                
                 if st.form_submit_button("Αποθήκευση"):
+                    final_link = manual_link
+                    if uploaded_file is not None:
+                        file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
+                        with open(file_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        final_link = file_path # Εδώ αποθηκεύεται το τοπικό path
+                        
                     d = datetime.now(ZoneInfo('Europe/Athens')).strftime('%d/%m/%Y')
-                    new_n = pd.DataFrame([[sel, d, nt, ar, ex]], columns=st.session_state.df_n.columns)
+                    new_n = pd.DataFrame([[sel, d, nt, final_link, ex]], columns=st.session_state.df_n.columns)
                     st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True)
                     save_all(); st.rerun()
             for _, nr in st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1].iterrows():
                 with st.expander(f"📅 {nr['Ημερομηνία']}"):
                     if nr['Σημειώσεις']: st.write(nr['Σημειώσεις'])
-                    if nr['Αρχείο']: st.link_button("📂 Άνοιγμα Αρχείου", nr['Αρχείο'])
+                    if nr['Αρχείο']: 
+                        if nr['Αρχείο'].startswith("uploads"):
+                             with open(nr['Αρχείο'], "rb") as f:
+                                 st.download_button("📂 Λήψη Αρχείου", f, file_name=os.path.basename(nr['Αρχείο']))
+                        else:
+                            st.link_button("🔗 Άνοιγμα Συνδέσμου", nr['Αρχείο'])
                     if nr['Διαγωνίσματα']: st.error(f"🚩 {nr['Διαγωνίσματα']}")
         with t3:
             hist = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel]
@@ -392,6 +425,9 @@ def main():
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
         if pend.empty: st.success("Κανένα προγραμματισμένο μάθημα.")
         else:
+            # --- ΤΑΞΙΝΟΜΗΣΗ ΑΥΞΟΥΣΑ (τα επόμενα πάνω) ---
+            pend['temp_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
+            pend = pend.sort_values('temp_dt').drop(columns=['temp_dt'])
             for i, r in pend.iterrows():
                 c1, c2, c3 = st.columns([3, 4, 2])
                 c1.write(f"**{r['Μαθητής']}**")
@@ -406,3 +442,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+```
