@@ -224,7 +224,6 @@ def show_finance_section():
             unpaid = unpaid.sort_values('temp_dt').drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
-                # ΠΡΟΣΘΗΚΗ ΩΡΑΣ ΣΤΙΣ ΠΛΗΡΩΜΕΣ
                 c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
                 if st.session_state.get(f"edit_{i}"):
                     new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), step=0.1, format="%.2f", key=f"new_{i}")
@@ -262,8 +261,15 @@ def show_finance_section():
                 summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f}€"):
+                        # --- ΠΡΟΣΘΗΚΗ SMS REMINDER ΣΤΗ ΜΗΝΙΑΙΑ ΑΝΑΦΟΡΑ ---
+                        s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == row['Μαθητής']]
+                        if not s_info.empty:
+                            unpaid_month = df_f[(df_f['Μαθητής'] == row['Μαθητής']) & (df_f['Πληρώθηκε'] == 'Όχι')]['Ποσό'].sum()
+                            if unpaid_month > 0:
+                                txt = urllib.parse.quote(f"Καλησπέρα, το οφειλόμενο ποσό για τα μαθήματα του μήνα είναι {unpaid_month:.2f}€.")
+                                st.link_button(f"📱 SMS Reminder ({unpaid_month:.2f}€)", f"sms:{s_info.iloc[0]['Τηλέφωνο']}?body={txt}")
+                        
                         for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
-                            # ΠΡΟΣΘΗΚΗ ΩΡΑΣ ΣΤΗ ΜΗΝΙΑΙΑ ΑΝΑΦΟΡΑ
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']} ({det['Ώρα']}-{det['Λήξη']}): {det['Ποσό']:.2f}€")
 
 def show_student_management():
@@ -319,7 +325,6 @@ def show_student_management():
             unpaid_df = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")]
             balance = unpaid_df['Ποσό'].sum()
             st.metric("Ανεξόφλητο Υπόλοιπο", f"{balance:.2f} €")
-            # ΠΡΟΣΘΗΚΗ ΩΡΑΣ ΣΤΗΝ ΚΑΡΤΕΛΑ ΜΑΘΗΤΗ
             if not unpaid_df.empty:
                 st.write("Εκκρεμή μαθήματα:")
                 for _, ur in unpaid_df.iterrows():
@@ -329,16 +334,20 @@ def show_student_management():
                 st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
                 save_all(); st.rerun()
         with t2:
+            # --- ΕΠΑΝΑΦΟΡΑ ΑΡΧΕΙΩΝ & ΣΗΜΕΙΩΣΕΩΝ ---
             with st.form("note_page", clear_on_submit=True):
-                nt, ex = st.text_area("Σημειώσεις"), st.text_input("Διαγώνισμα")
+                nt = st.text_area("Σημειώσεις")
+                ar = st.text_input("Link Αρχείου (Drive/Dropbox)")
+                ex = st.text_input("Διαγώνισμα")
                 if st.form_submit_button("Αποθήκευση"):
                     d = datetime.now(ZoneInfo('Europe/Athens')).strftime('%d/%m/%Y')
-                    new_n = pd.DataFrame([[sel, d, nt, "", ex]], columns=st.session_state.df_n.columns)
+                    new_n = pd.DataFrame([[sel, d, nt, ar, ex]], columns=st.session_state.df_n.columns)
                     st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True)
                     save_all(); st.rerun()
             for _, nr in st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1].iterrows():
                 with st.expander(f"📅 {nr['Ημερομηνία']}"):
-                    st.write(nr['Σημειώσεις'])
+                    if nr['Σημειώσεις']: st.write(nr['Σημειώσεις'])
+                    if nr['Αρχείο']: st.link_button("📂 Άνοιγμα Αρχείου", nr['Αρχείο'])
                     if nr['Διαγωνίσματα']: st.error(f"🚩 {nr['Διαγωνίσματα']}")
         with t3:
             hist = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel]
