@@ -103,12 +103,16 @@ def save_data_to_sheet(df, tab_name, username):
         mine = df.copy()
         mine.insert(0, 'owner', username)
         final_df = pd.concat([others, mine], ignore_index=True).fillna("")
+        
+        # ΑΛΛΑΓΗ: Μετατροπή της στήλης Ποσό σε αριθμητική για σωστά δεκαδικά στη Google
+        if 'Ποσό' in final_df.columns:
+            final_df['Ποσό'] = pd.to_numeric(final_df['Ποσό'], errors='coerce').fillna(0)
+            
         ws.clear()
         ws.update([final_df.columns.values.tolist()] + final_df.values.tolist())
     except: pass
 
 def load_data(username):
-    # ΠΕΡΙΟΡΙΣΜΟΣ: Μην διαβάζεις από Google αν πέρασαν λιγότερα από 10 δευτερόλεπτα
     if 'last_load' in st.session_state:
         if (datetime.now() - st.session_state.last_load).total_seconds() < 10:
             return
@@ -129,7 +133,6 @@ def save_all():
     save_data_to_sheet(st.session_state.df_s, "students", user)
     save_data_to_sheet(st.session_state.df_l, "lessons", user)
     save_data_to_sheet(st.session_state.df_n, "notes", user)
-    # Καθάρισμα του cache ώστε να διαβαστούν οι αλλαγές αμέσως
     st.cache_data.clear()
     st.session_state.last_load = datetime.now()
 
@@ -169,7 +172,8 @@ def auto_sync():
                 match = next((s for _, s in st.session_state.df_s.iterrows() if s['Όνομα'].lower() in summary.lower()), None)
                 if match is not None:
                     d_str, t_start, t_end = start.strftime('%d/%m/%Y'), start.strftime('%H:%M'), end.strftime('%H:%M')
-                    price = round(((end - start).total_seconds() / 3600) * float(match['Τιμή']), 2)
+                    # ΑΛΛΑΓΗ: Διορθωμένος υπολογισμός για να μη χάνει δεκαδικά
+                    price = round(float(((end - start).total_seconds() / 3600) * float(match['Τιμή'])), 2)
                     if now < end:
                         new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, "Προγραμματισμένο", "Όχι", uid])
                     else:
@@ -216,7 +220,8 @@ def show_finance_section():
                     sel_m = c1.selectbox("Μαθητής", st.session_state.df_s['Όνομα'].tolist())
                     d_m = c2.text_input("Ημερομηνία", datetime.now(ZoneInfo('Europe/Athens')).strftime("%d/%m/%Y"))
                     t_m = c3.text_input("Ώρα (έναρξη - λήξη)", "16:00 - 17:00")
-                    p_m = c4.number_input("Ποσό (€)", min_value=0.0, step=5.0)
+                    # ΑΛΛΑΓΗ: Υποστήριξη δεκαδικών και εδώ
+                    p_m = c4.number_input("Ποσό (€)", min_value=0.0, step=0.5, format="%.2f")
                     if st.form_submit_button("Προσθήκη"):
                         uid_m = f"manual_{datetime.now().timestamp()}"
                         ts, te = (t_m.split("-")[0].strip(), t_m.split("-")[1].strip()) if "-" in t_m else (t_m, t_m)
@@ -234,21 +239,23 @@ def show_finance_section():
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
                 c1.write(f"**{r['Μαθητής']}** ({r['Ημερομηνία']})")
                 if st.session_state.get(f"edit_{i}"):
-                    new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), key=f"new_{i}")
+                    new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), step=0.1, format="%.2f", key=f"new_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
                         st.session_state.df_l.at[i, 'Ποσό'] = float(new_amt)
                         st.session_state[f"edit_{i}"] = False; save_all(); st.rerun()
                 else:
-                    c2.write(f"**{r['Ποσό']}€**")
+                    c2.write(f"**{r['Ποσό']:.2f}€**")
                     if c2.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
+                
+                # ΑΛΛΑΓΗ: Διορθωμένο pay_val για να δέχεται και να δείχνει δεκαδικά (όχι πια 225)
                 pay_val = c3.number_input(
-    "Πληρωμή", 
-    min_value=0.0, 
-    value=float(r['Ποσό']), 
-    step=0.5,        # Επιτρέπει στο σύστημα να "δει" τα δεκαδικά των 50 λεπτών
-    format="%.2f",   # Αναγκάζει το κουτάκι να δείξει την υποδιαστολή (π.χ. 22.50)
-    key=f"pay_{i}"
-)
+                    "Πληρωμή", 
+                    min_value=0.0, 
+                    value=float(r['Ποσό']), 
+                    step=0.1, 
+                    format="%.2f", 
+                    key=f"pay_{i}"
+                )
 
                 cp1, cp2 = c4.columns(2)
                 if cp1.button("✔️", key=f"ok_{i}"):
@@ -275,9 +282,9 @@ def show_finance_section():
                 st.metric("💶 Συνολικά Έσοδα Μήνα", f"{df_f['Ποσό'].sum():.2f} €")
                 summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
-                    with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']}€"):
+                    with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f}€"):
                         for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
-                            st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']}: {det['Ποσό']}€")
+                            st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']}: {det['Ποσό']:.2f}€")
 
 def show_student_management():
     if 'view_mode' not in st.session_state:
@@ -328,7 +335,7 @@ def show_student_management():
         with t1:
             unpaid_df = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")]
             balance = unpaid_df['Ποσό'].sum()
-            st.metric("Ανεξόφλητο Υπόλοιπο", f"{balance} €")
+            st.metric("Ανεξόφλητο Υπόλοιπο", f"{balance:.2f} €")
             if balance > 0 and st.button(f"Εξόφληση ({len(unpaid_df)} μαθήματα)"):
                 st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
                 save_all(); st.rerun()
@@ -390,10 +397,8 @@ def main():
     if st.session_state.user not in users_df['username'].values:
         st.session_state.clear(); st.rerun()
 
-    # Φορτώνουμε δεδομένα με τον περιορισμό των 10 δευτερολέπτων
     load_data(st.session_state.user)
     
-    # ΠΕΡΙΟΡΙΣΜΟΣ: Το αυτόματο Sync τρέχει μόνο αν πέρασαν 2 λεπτά
     if 'last_sync' not in st.session_state or (datetime.now() - st.session_state.last_sync).total_seconds() > 120:
         auto_sync()
         st.session_state.last_sync = datetime.now()
