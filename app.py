@@ -89,7 +89,11 @@ def load_data_from_sheet(tab_name, username):
         ws = sheet.worksheet(tab_name)
         df_all = pd.DataFrame(ws.get_all_records())
         if not df_all.empty and 'owner' in df_all.columns:
-            return df_all[df_all['owner'] == username].drop(columns=['owner']).reset_index(drop=True)
+            df_filtered = df_all[df_all['owner'] == username].drop(columns=['owner']).reset_index(drop=True)
+            # ΔΙΑΣΦΑΛΙΣΗ ΔΕΚΑΔΙΚΩΝ ΚΑΤΑ ΤΗ ΦΟΡΤΩΣΗ
+            if 'Ποσό' in df_filtered.columns:
+                df_filtered['Ποσό'] = pd.to_numeric(df_filtered['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
+            return df_filtered
         return pd.DataFrame()
     except: return pd.DataFrame()
 
@@ -102,12 +106,12 @@ def save_data_to_sheet(df, tab_name, username):
         others = all_data[all_data['owner'] != username] if not all_data.empty and 'owner' in all_data.columns else pd.DataFrame()
         mine = df.copy()
         mine.insert(0, 'owner', username)
-        final_df = pd.concat([others, mine], ignore_index=True).fillna("")
         
-        # Εξασφάλιση ότι το Ποσό αποθηκεύεται ως αριθμός για τα δεκαδικά
-        if 'Ποσό' in final_df.columns:
-            final_df['Ποσό'] = pd.to_numeric(final_df['Ποσό'], errors='coerce').fillna(0)
+        # ΔΙΑΣΦΑΛΙΣΗ ΔΕΚΑΔΙΚΩΝ ΠΡΙΝ ΤΗΝ ΑΠΟΣΤΟΛΗ ΣΤΗ GOOGLE
+        if 'Ποσό' in mine.columns:
+            mine['Ποσό'] = pd.to_numeric(mine['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             
+        final_df = pd.concat([others, mine], ignore_index=True).fillna("")
         ws.clear()
         ws.update([final_df.columns.values.tolist()] + final_df.values.tolist())
     except: pass
@@ -141,13 +145,6 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
-        for i, r in st.session_state.df_l.iterrows():
-            if r['Κατάσταση'] == "Προγραμματισμένο":
-                try:
-                    end_dt = datetime.strptime(f"{r['Ημερομηνία']} {r['Λήξη']}", "%d/%m/%Y %H:%M")
-                    if now >= end_dt: st.session_state.df_l.at[i, 'Κατάσταση'] = "Ολοκληρώθηκε"
-                except: pass
-
         st.session_state.df_l = st.session_state.df_l[
             (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
             (st.session_state.df_l['UID'].astype(str).str.startswith('manual_'))
@@ -168,7 +165,6 @@ def auto_sync():
                 match = next((s for _, s in st.session_state.df_s.iterrows() if s['Όνομα'].lower() in summary.lower()), None)
                 if match is not None:
                     d_str, t_start, t_end = start.strftime('%d/%m/%Y'), start.strftime('%H:%M'), end.strftime('%H:%M')
-                    # ΔΙΟΡΘΩΣΗ: float για δεκαδικά
                     price = round(float(((end - start).total_seconds() / 3600) * float(match['Τιμή'])), 2)
                     if now < end:
                         new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, "Προγραμματισμένο", "Όχι", uid])
@@ -216,11 +212,11 @@ def show_finance_section():
                     sel_m = c1.selectbox("Μαθητής", st.session_state.df_s['Όνομα'].tolist())
                     d_m = c2.text_input("Ημερομηνία", datetime.now(ZoneInfo('Europe/Athens')).strftime("%d/%m/%Y"))
                     t_m = c3.text_input("Ώρα (π.χ. 16:00-17:00)", "16:00 - 17:00")
-                    p_m = c4.number_input("Ποσό (€)", min_value=0.0, step=0.5, format="%.2f")
+                    p_m = c4.number_input("Ποσό (€)", min_value=0.0, step=0.1, format="%.2f")
                     if st.form_submit_button("Προσθήκη"):
                         uid_m = f"manual_{datetime.now().timestamp()}"
                         ts, te = (t_m.split("-")[0].strip(), t_m.split("-")[1].strip()) if "-" in t_m else (t_m, t_m)
-                        new_l = pd.DataFrame([[sel_m, d_m, ts, te, p_m, "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
+                        new_l = pd.DataFrame([[sel_m, d_m, ts, te, float(p_m), "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
                         save_all(); st.rerun()
         st.divider()
@@ -234,7 +230,7 @@ def show_finance_section():
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
                 c1.write(f"**{r['Μαθητής']}** ({r['Ημερομηνία']})")
                 if st.session_state.get(f"edit_{i}"):
-                    new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), step=0.5, format="%.2f", key=f"new_{i}")
+                    new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), step=0.1, format="%.2f", key=f"new_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
                         st.session_state.df_l.at[i, 'Ποσό'] = float(new_amt)
                         st.session_state[f"edit_{i}"] = False; save_all(); st.rerun()
@@ -292,6 +288,7 @@ def show_student_management():
                 st.session_state.view_mode = 'card'
                 st.rerun()
             
+            # --- ΕΔΩ ΕΙΝΑΙ Η ΔΙΟΡΘΩΣΗ ΓΙΑ ΤΟ ΜΟΛΥΒΑΚΙ ---
             if st.session_state.get(f"edit_student_{i}"):
                 with st.form(f"edit_s_form_{i}"):
                     new_n = st.text_input("Όνομα", value=r['Όνομα'])
@@ -307,7 +304,8 @@ def show_student_management():
                 c2.write(r['Τηλέφωνο'])
                 c3.write(f"{r['Τιμή']}€/ώρα")
                 if c4.button("✏️", key=f"ed_s_{i}"):
-                    st.session_state[f"edit_student_{i}"] = True; st.rerun()
+                    st.session_state[f"edit_student_{i}"] = True
+                    st.rerun()
                 if c5.button("🗑️", key=f"del_{i}"):
                     st.session_state.df_s = st.session_state.df_s.drop(i).reset_index(drop=True)
                     save_all(); st.rerun()
@@ -362,33 +360,17 @@ def main():
     if "auth" not in st.session_state: st.session_state.auth = False
     if not st.session_state.auth:
         st.title("📚 MyLessons")
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            tab_login, tab_signup = st.tabs(["🔑 Log in", "📝 Sign up"])
-            with tab_login:
-                u, p = st.text_input("Username"), st.text_input("Password", type="password")
-                if st.button("Log in", use_container_width=True):
-                    users = get_users()
-                    row = users[users['username'] == u]
-                    if not row.empty and row['password'].values[0] == hash_pw(p):
-                        st.session_state.auth, st.session_state.user, st.session_state.cal_url = True, u, row['cal_url'].values[0]
-                        load_data(u); st.rerun()
-                    else: st.error("Λάθος στοιχεία!")
-            with tab_signup:
-                nu, np, nurl = st.text_input("Νέο User"), st.text_input("Νέο Pass", type="password"), st.text_input("iCloud Link")
-                if st.button("Δημιουργία", use_container_width=True):
-                    if save_user(nu, np, nurl): st.success("Έτοιμο!"); st.rerun()
+        u, p = st.text_input("Username"), st.text_input("Password", type="password")
+        if st.button("Log in", use_container_width=True):
+            users = get_users()
+            row = users[users['username'] == u]
+            if not row.empty and row['password'].values[0] == hash_pw(p):
+                st.session_state.auth, st.session_state.user, st.session_state.cal_url = True, u, row['cal_url'].values[0]
+                load_data(u); st.rerun()
+            else: st.error("Λάθος στοιχεία!")
         return
 
-    users_df = get_users()
-    if st.session_state.user not in users_df['username'].values:
-        st.session_state.clear(); st.rerun()
-
     load_data(st.session_state.user)
-    if 'last_sync' not in st.session_state or (datetime.now() - st.session_state.last_sync).total_seconds() > 120:
-        auto_sync(); st.session_state.last_sync = datetime.now()
-    
-    st.sidebar.title(f"👤 {st.session_state.user}")
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
     if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
 
