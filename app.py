@@ -321,9 +321,7 @@ def show_student_management():
                     st.write(nr['Σημειώσεις'])
                     if nr['Διαγωνίσματα']: st.error(f"🚩 {nr['Διαγωνίσματα']}")
 
-# --- ΚΥΡΙΑ ΕΦΑΡΜΟΓΗ ---
-def main():
-# --- ΣΥΝΑΡΤΗΣΗ ΡΥΘΜΙΣΕΩΝ (Για να μην κρασάρει το μενού) ---
+# --- ΣΥΝΑΡΤΗΣΗ ΡΥΘΜΙΣΕΩΝ ---
 def show_settings():
     st.header("⚙️ Ρυθμίσεις Λογαριασμού")
     with st.expander("🔗 Ενημέρωση iCloud Link & Password"):
@@ -334,7 +332,8 @@ def show_settings():
                 if update_user_data(st.session_state.user, new_url, new_pw if new_pw else None):
                     st.session_state.cal_url = new_url
                     st.success("Τα στοιχεία ενημερώθηκαν!")
-                else: st.error("Σφάλμα ενημέρωσης.")
+                else: 
+                    st.error("Σφάλμα ενημέρωσης.")
     
     if st.button("🔴 Διαγραφή Λογαριασμού", type="primary"):
         delete_user_account(st.session_state.user)
@@ -343,10 +342,11 @@ def show_settings():
 
 # --- ΚΥΡΙΑ ΕΦΑΡΜΟΓΗ ---
 def main():
-    # Ενέργεια: Αυτόματο κλείσιμο μενού (initial_sidebar_state="collapsed")
+    # Ενέργεια: Αυτόματο κλείσιμο μενού
     st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
     
-    if "auth" not in st.session_state: st.session_state.auth = False
+    if "auth" not in st.session_state: 
+        st.session_state.auth = False
     
     if not st.session_state.auth:
         st.title("📚 MyLessons")
@@ -360,24 +360,32 @@ def main():
                     row = users[users['username'] == u]
                     if not row.empty and row['password'].values[0] == hash_pw(p):
                         st.session_state.auth, st.session_state.user, st.session_state.cal_url = True, u, row['cal_url'].values[0]
-                        load_data(u); st.rerun()
-                    else: st.error("Λάθος στοιχεία!")
+                        load_data(u)
+                        st.rerun()
+                    else: 
+                        st.error("Λάθος στοιχεία!")
             with tab_signup:
                 nu, np, nurl = st.text_input("Νέο User"), st.text_input("Νέο Pass", type="password"), st.text_input("iCloud Link")
                 if st.button("Δημιουργία", use_container_width=True):
-                    if save_user(nu, np, nurl): st.success("Έτοιμο!"); st.rerun()
+                    if save_user(nu, np, nurl): 
+                        st.success("Έτοιμο!")
+                        st.rerun()
         return
 
     # Έλεγχος αν ο χρήστης υπάρχει ακόμα στη βάση
     users_df = get_users()
     if st.session_state.user not in users_df['username'].values:
-        st.session_state.clear(); st.rerun()
+        st.session_state.clear()
+        st.rerun()
 
-    load_data(st.session_state.user); auto_sync()
+    load_data(st.session_state.user)
+    auto_sync()
     
     st.sidebar.title(f"👤 {st.session_state.user}")
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
-    if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
+    if st.sidebar.button("🚪 Log out"): 
+        st.session_state.clear()
+        st.rerun()
 
     if menu == "📊 Dashboard": 
         show_dashboard()
