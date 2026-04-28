@@ -297,7 +297,7 @@ def main():
     if "auth" not in st.session_state: st.session_state.auth = False
     
     if not st.session_state.auth:
-        st.title("📚 MyLessons Cloud")
+        st.title("📚 MyLessons")
         tab_login, tab_signup = st.tabs(["🔑 Log in", "📝 Sign up"])
         with tab_login:
             u, p = st.text_input("Username"), st.text_input("Password", type="password")
