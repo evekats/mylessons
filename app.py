@@ -81,6 +81,7 @@ def delete_user_account(username):
             ws.update([filtered.columns.values.tolist()] + filtered.values.tolist())
 
 # --- ΦΟΡΤΩΣΗ & ΑΠΟΘΗΚΕΥΣΗ (ΑΝΑ ΧΡΗΣΤΗ) ---
+@st.cache_data(ttl=600) # Cache για 10 λεπτά για μείωση των API calls
 def load_data_from_sheet(tab_name, username):
     sheet = get_gsheet_client()
     if not sheet: return pd.DataFrame()
@@ -107,21 +108,30 @@ def save_data_to_sheet(df, tab_name, username):
     except: pass
 
 def load_data(username):
-    if 'df_s' not in st.session_state:
-        st.session_state.df_s = load_data_from_sheet("students", username)
-        if st.session_state.df_s.empty: st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
-    if 'df_l' not in st.session_state:
-        st.session_state.df_l = load_data_from_sheet("lessons", username)
-        if st.session_state.df_l.empty: st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
-    if 'df_n' not in st.session_state:
-        st.session_state.df_n = load_data_from_sheet("notes", username)
-        if st.session_state.df_n.empty: st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
+    # ΠΕΡΙΟΡΙΣΜΟΣ: Μην διαβάζεις από Google αν πέρασαν λιγότερα από 10 δευτερόλεπτα
+    if 'last_load' in st.session_state:
+        if (datetime.now() - st.session_state.last_load).total_seconds() < 10:
+            return
+
+    st.session_state.df_s = load_data_from_sheet("students", username)
+    if st.session_state.df_s.empty: st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
+    
+    st.session_state.df_l = load_data_from_sheet("lessons", username)
+    if st.session_state.df_l.empty: st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
+    
+    st.session_state.df_n = load_data_from_sheet("notes", username)
+    if st.session_state.df_n.empty: st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
+    
+    st.session_state.last_load = datetime.now()
 
 def save_all():
     user = st.session_state.user
     save_data_to_sheet(st.session_state.df_s, "students", user)
     save_data_to_sheet(st.session_state.df_l, "lessons", user)
     save_data_to_sheet(st.session_state.df_n, "notes", user)
+    # Καθάρισμα του cache ώστε να διαβαστούν οι αλλαγές αμέσως
+    st.cache_data.clear()
+    st.session_state.last_load = datetime.now()
 
 def auto_sync():
     cal_url = st.session_state.cal_url
@@ -185,7 +195,9 @@ def show_dashboard():
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("☁️ iCloud Sync")
-        if st.button("🔄 Sync Now"): auto_sync(); st.rerun()
+        if st.button("🔄 Sync Now"): 
+            auto_sync()
+            st.rerun()
     with c2:
         st.subheader("📅 Διαγωνίσματα")
         exams = st.session_state.df_n[st.session_state.df_n['Διαγωνίσματα'].notna() & (st.session_state.df_n['Διαγωνίσματα'] != "")]
@@ -260,15 +272,11 @@ def show_finance_section():
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']}: {det['Ποσό']}€")
 
 def show_student_management():
-    # Αν δεν υπάρχει ήδη η κατάσταση 'view', την ορίζουμε σε 'list'
     if 'view_mode' not in st.session_state:
         st.session_state.view_mode = 'list'
     
-    # --- ΠΕΡΙΠΤΩΣΗ 1: ΠΡΟΒΟΛΗ ΛΙΣΤΑΣ ΜΑΘΗΤΩΝ ---
     if st.session_state.view_mode == 'list':
         st.header("👥 Διαχείριση Μαθητών")
-        
-        # CSS για Link Style
         st.markdown("""
             <style>
             div.stButton > button:first-child {
@@ -289,13 +297,10 @@ def show_student_management():
         st.write("---")
         for i, r in st.session_state.df_s.iterrows():
             c1, c2, c3, c4, c5 = st.columns([2.5, 2, 1.5, 0.5, 0.5])
-            
-            # Μόλις πατηθεί, αλλάζουμε το mode σε 'card'
             if c1.button(f"👤 {r['Όνομα']}", key=f"btn_{i}"):
                 st.session_state.selected_student = r['Όνομα']
                 st.session_state.view_mode = 'card'
                 st.rerun()
-                
             c2.write(r['Τηλέφωνο'])
             c3.write(f"{r['Τιμή']}€/ώρα")
             if c4.button("✏️", key=f"ed_{i}"): pass
@@ -303,37 +308,22 @@ def show_student_management():
                 st.session_state.df_s = st.session_state.df_s.drop(i).reset_index(drop=True)
                 save_all(); st.rerun()
 
-    # --- ΠΕΡΙΠΤΩΣΗ 2: ΠΡΟΒΟΛΗ ΚΑΡΤΕΛΑΣ (ΕΝΤΕΛΩΣ ΑΛΛΗ ΣΕΛΙΔΑ) ---
     elif st.session_state.view_mode == 'card':
         sel = st.session_state.selected_student
-        
-        # Header με κουμπί επιστροφής
         c_title, c_back = st.columns([0.8, 0.2])
         c_title.header(f"📂 Καρτέλα: {sel}")
-        if c_back.button("⬅️ Πίσω στη Λίστα"):
+        if c_back.button("⬅️ Πίσω"):
             st.session_state.view_mode = 'list'
-            st.session_state.selected_student = None
             st.rerun()
-            
         st.divider()
-        
         t1, t2, t3 = st.tabs(["💰 Οικονομικά", "📝 Σημειώσεις", "📜 Ιστορικό"])
-        
         with t1:
-            unpaid_df = st.session_state.df_l[
-                (st.session_state.df_l['Μαθητής'] == sel) & 
-                (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & 
-                (st.session_state.df_l['Πληρώθηκε'] == "Όχι")
-            ]
+            unpaid_df = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")]
             balance = unpaid_df['Ποσό'].sum()
             st.metric("Ανεξόφλητο Υπόλοιπο", f"{balance} €")
-            if balance > 0:
-                if st.button(f"Εξόφληση ({len(unpaid_df)} μαθήματα)"):
-                    st.session_state.df_l.loc[
-                        (st.session_state.df_l['Μαθητής'] == sel) & 
-                        (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
-                    save_all(); st.rerun()
-        
+            if balance > 0 and st.button(f"Εξόφληση ({len(unpaid_df)} μαθήματα)"):
+                st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
+                save_all(); st.rerun()
         with t2:
             with st.form("note_page", clear_on_submit=True):
                 nt, ex = st.text_area("Σημειώσεις"), st.text_input("Διαγώνισμα")
@@ -342,45 +332,32 @@ def show_student_management():
                     new_n = pd.DataFrame([[sel, d, nt, "", ex]], columns=st.session_state.df_n.columns)
                     st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True)
                     save_all(); st.rerun()
-            
             for _, nr in st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1].iterrows():
-                with st.expander(f"📅 {nr['Ημερομημία']}"):
+                with st.expander(f"📅 {nr['Ημερομηνία']}"):
                     st.write(nr['Σημειώσεις'])
                     if nr['Διαγωνίσματα']: st.error(f"🚩 {nr['Διαγωνίσματα']}")
-
         with t3:
             hist = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel]
             st.dataframe(hist.iloc[::-1].drop(columns=['UID'], errors='ignore'), use_container_width=True)
 
-
-
-# --- ΣΥΝΑΡΤΗΣΗ ΡΥΘΜΙΣΕΩΝ ---
 def show_settings():
-    st.header("⚙️ Ρυθμίσεις Λογαριασμού")
+    st.header("⚙️ Ρυθμίσεις")
     with st.expander("🔗 Ενημέρωση iCloud Link & Password"):
         with st.form("update_u"):
             new_url = st.text_input("Νέο iCloud Link", value=st.session_state.cal_url)
-            new_pw = st.text_input("Νέος Κωδικός (άστο κενό αν δεν αλλάζεις)", type="password")
+            new_pw = st.text_input("Νέος Κωδικός", type="password")
             if st.form_submit_button("Αποθήκευση"):
                 if update_user_data(st.session_state.user, new_url, new_pw if new_pw else None):
                     st.session_state.cal_url = new_url
                     st.success("Τα στοιχεία ενημερώθηκαν!")
-                else: 
-                    st.error("Σφάλμα ενημέρωσης.")
-    
+                else: st.error("Σφάλμα ενημέρωσης.")
     if st.button("🔴 Διαγραφή Λογαριασμού", type="primary"):
         delete_user_account(st.session_state.user)
-        st.session_state.clear()
-        st.rerun()
+        st.session_state.clear(); st.rerun()
 
-# --- ΚΥΡΙΑ ΕΦΑΡΜΟΓΗ ---
 def main():
-    # Ενέργεια: Αυτόματο κλείσιμο μενού
     st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
-    
-    if "auth" not in st.session_state: 
-        st.session_state.auth = False
-    
+    if "auth" not in st.session_state: st.session_state.auth = False
     if not st.session_state.auth:
         st.title("📚 MyLessons")
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -393,40 +370,35 @@ def main():
                     row = users[users['username'] == u]
                     if not row.empty and row['password'].values[0] == hash_pw(p):
                         st.session_state.auth, st.session_state.user, st.session_state.cal_url = True, u, row['cal_url'].values[0]
-                        load_data(u)
-                        st.rerun()
-                    else: 
-                        st.error("Λάθος στοιχεία!")
+                        load_data(u); st.rerun()
+                    else: st.error("Λάθος στοιχεία!")
             with tab_signup:
                 nu, np, nurl = st.text_input("Νέο User"), st.text_input("Νέο Pass", type="password"), st.text_input("iCloud Link")
                 if st.button("Δημιουργία", use_container_width=True):
-                    if save_user(nu, np, nurl): 
-                        st.success("Έτοιμο!")
-                        st.rerun()
+                    if save_user(nu, np, nurl): st.success("Έτοιμο!"); st.rerun()
         return
 
-    # Έλεγχος αν ο χρήστης υπάρχει ακόμα στη βάση
     users_df = get_users()
     if st.session_state.user not in users_df['username'].values:
-        st.session_state.clear()
-        st.rerun()
+        st.session_state.clear(); st.rerun()
 
+    # Φορτώνουμε δεδομένα με τον περιορισμό των 10 δευτερολέπτων
     load_data(st.session_state.user)
-    auto_sync()
+    
+    # ΠΕΡΙΟΡΙΣΜΟΣ: Το αυτόματο Sync τρέχει μόνο αν πέρασαν 2 λεπτά
+    if 'last_sync' not in st.session_state or (datetime.now() - st.session_state.last_sync).total_seconds() > 120:
+        auto_sync()
+        st.session_state.last_sync = datetime.now()
     
     st.sidebar.title(f"👤 {st.session_state.user}")
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
-    if st.sidebar.button("🚪 Log out"): 
-        st.session_state.clear()
-        st.rerun()
+    if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
 
-    if menu == "📊 Dashboard": 
-        show_dashboard()
+    if menu == "📊 Dashboard": show_dashboard()
     elif menu == "📅 Πρόγραμμα":
         st.header("📅 Πρόγραμμα")
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
-        if pend.empty: 
-            st.success("Δεν υπάρχουν προγραμματισμένα μαθήματα.")
+        if pend.empty: st.success("Δεν υπάρχουν προγραμματισμένα μαθήματα.")
         else:
             for i, r in pend.iterrows():
                 c1, c2, c3 = st.columns([3, 4, 2])
@@ -436,12 +408,9 @@ def main():
                 if not s_match.empty:
                     msg = urllib.parse.quote(f"Υπενθυμίζω το μάθημα μας στις {r['Ώρα']}.")
                     c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={msg}")
-    elif menu == "💰 Οικονομικά": 
-        show_finance_section()
-    elif menu == "👥 Μαθητές": 
-        show_student_management()
-    elif menu == "⚙️ Ρυθμίσεις":
-        show_settings()
+    elif menu == "💰 Οικονομικά": show_finance_section()
+    elif menu == "👥 Μαθητές": show_student_management()
+    elif menu == "⚙️ Ρυθμίσεις": show_settings()
 
 if __name__ == "__main__":
     main()
