@@ -90,7 +90,6 @@ def load_data_from_sheet(tab_name, username):
         df_all = pd.DataFrame(ws.get_all_records())
         if not df_all.empty and 'owner' in df_all.columns:
             df_filtered = df_all[df_all['owner'] == username].drop(columns=['owner']).reset_index(drop=True)
-            # ΔΙΑΣΦΑΛΙΣΗ ΔΕΚΑΔΙΚΩΝ ΚΑΤΑ ΤΗ ΦΟΡΤΩΣΗ
             if 'Ποσό' in df_filtered.columns:
                 df_filtered['Ποσό'] = pd.to_numeric(df_filtered['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             return df_filtered
@@ -106,11 +105,8 @@ def save_data_to_sheet(df, tab_name, username):
         others = all_data[all_data['owner'] != username] if not all_data.empty and 'owner' in all_data.columns else pd.DataFrame()
         mine = df.copy()
         mine.insert(0, 'owner', username)
-        
-        # ΔΙΑΣΦΑΛΙΣΗ ΔΕΚΑΔΙΚΩΝ ΠΡΙΝ ΤΗΝ ΑΠΟΣΤΟΛΗ ΣΤΗ GOOGLE
         if 'Ποσό' in mine.columns:
             mine['Ποσό'] = pd.to_numeric(mine['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
-            
         final_df = pd.concat([others, mine], ignore_index=True).fillna("")
         ws.clear()
         ws.update([final_df.columns.values.tolist()] + final_df.values.tolist())
@@ -228,7 +224,8 @@ def show_finance_section():
             unpaid = unpaid.sort_values('temp_dt').drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
-                c1.write(f"**{r['Μαθητής']}** ({r['Ημερομηνία']})")
+                # ΠΡΟΣΘΗΚΗ ΩΡΑΣ ΣΤΙΣ ΠΛΗΡΩΜΕΣ
+                c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
                 if st.session_state.get(f"edit_{i}"):
                     new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), step=0.1, format="%.2f", key=f"new_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
@@ -266,7 +263,8 @@ def show_finance_section():
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f}€"):
                         for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
-                            st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']}: {det['Ποσό']:.2f}€")
+                            # ΠΡΟΣΘΗΚΗ ΩΡΑΣ ΣΤΗ ΜΗΝΙΑΙΑ ΑΝΑΦΟΡΑ
+                            st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']} ({det['Ώρα']}-{det['Λήξη']}): {det['Ποσό']:.2f}€")
 
 def show_student_management():
     if 'view_mode' not in st.session_state: st.session_state.view_mode = 'list'
@@ -288,7 +286,6 @@ def show_student_management():
                 st.session_state.view_mode = 'card'
                 st.rerun()
             
-            # --- ΕΔΩ ΕΙΝΑΙ Η ΔΙΟΡΘΩΣΗ ΓΙΑ ΤΟ ΜΟΛΥΒΑΚΙ ---
             if st.session_state.get(f"edit_student_{i}"):
                 with st.form(f"edit_s_form_{i}"):
                     new_n = st.text_input("Όνομα", value=r['Όνομα'])
@@ -322,7 +319,13 @@ def show_student_management():
             unpaid_df = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")]
             balance = unpaid_df['Ποσό'].sum()
             st.metric("Ανεξόφλητο Υπόλοιπο", f"{balance:.2f} €")
-            if balance > 0 and st.button(f"Εξόφληση ({len(unpaid_df)} μαθήματα)"):
+            # ΠΡΟΣΘΗΚΗ ΩΡΑΣ ΣΤΗΝ ΚΑΡΤΕΛΑ ΜΑΘΗΤΗ
+            if not unpaid_df.empty:
+                st.write("Εκκρεμή μαθήματα:")
+                for _, ur in unpaid_df.iterrows():
+                    st.write(f"• {ur['Ημερομηνία']} ({ur['Ώρα']}-{ur['Λήξη']}): **{ur['Ποσό']:.2f}€**")
+            
+            if balance > 0 and st.button(f"Εξόφληση Όλων"):
                 st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
                 save_all(); st.rerun()
         with t2:
