@@ -34,7 +34,6 @@ def get_users():
         ws = sheet.worksheet("users")
         data = ws.get_all_records()
         if not data:
-            # Αν το φύλλο είναι άδειο, επέστρεψε κενούς τίτλους
             return pd.DataFrame(columns=["username", "password", "cal_url"])
         return pd.DataFrame(data)
     except Exception as e:
@@ -67,14 +66,12 @@ def update_user_data(username, new_url, new_pw=None):
 def delete_user_account(username):
     sheet = get_gsheet_client()
     if not sheet: return
-    # 1. Διαγραφή από users tab
     ws_u = sheet.worksheet("users")
     users = pd.DataFrame(ws_u.get_all_records())
     if username in users['username'].values:
         idx = users[users['username'] == username].index[0] + 2
         ws_u.delete_rows(idx)
     
-    # 2. Διαγραφή δεδομένων από τα άλλα tabs
     for tab in ["students", "lessons", "notes"]:
         ws = sheet.worksheet(tab)
         data = pd.DataFrame(ws.get_all_records())
@@ -126,7 +123,6 @@ def save_all():
     save_data_to_sheet(st.session_state.df_l, "lessons", user)
     save_data_to_sheet(st.session_state.df_n, "notes", user)
 
-# --- ΣΥΝΑΡΤΗΣΗ ΑΥΤΟΜΑΤΟΥ ΣΥΓΧΡΟΝΙΣΜΟΥ (ΑΚΡΙΒΩΣ Ο ΚΩΔΙΚΑΣ ΣΟΥ) ---
 def auto_sync():
     cal_url = st.session_state.cal_url
     if not cal_url or str(cal_url) == "nan": return
@@ -175,7 +171,6 @@ def auto_sync():
         save_all()
     except: pass
 
-# --- UI ΣΥΝΑΡΤΗΣΕΙΣ (ΑΚΡΙΒΩΣ ΟΠΩΣ ΤΙΣ ΕΣΤΕΙΛΕΣ) ---
 def show_dashboard():
     st.header("📊 Dashboard")
     col_m1, col_m2, col_m3 = st.columns(3)
@@ -242,7 +237,6 @@ def show_finance_section():
                     if surplus != 0:
                         new_adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], r['Ώρα'], r['Λήξη'], -surplus, "Ολοκληρώθηκε", "Όχι", f"adj_{i}"]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_adj], ignore_index=True)
-                    # Logic για συμψηφισμό (όπως ο κώδικάς σου)
                     save_all(); st.rerun()
                 if cp2.button("❌", key=f"can_{i}"):
                     st.session_state.df_l.at[i, 'Κατάσταση'] = "Ακυρώθηκε"; save_all(); st.rerun()
@@ -267,23 +261,53 @@ def show_finance_section():
 
 def show_student_management():
     st.header("👥 Μαθητές")
+    
+    # CSS για Clickable Links (κουμπιά που μοιάζουν με link)
+    st.markdown("""
+        <style>
+        div.stButton > button:first-child {
+            border: none; background-color: transparent; color: #007bff;
+            text-decoration: underline; padding: 0; height: auto; font-weight: bold;
+        }
+        div.stButton > button:hover { color: #0056b3; background-color: transparent; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    if 'selected_student' not in st.session_state:
+        st.session_state.selected_student = None
+
     with st.expander("➕ Προσθήκη Μαθητή"):
         with st.form("add_s"):
             n, ph, pr = st.text_input("Όνομα"), st.text_input("Τηλέφωνο"), st.number_input("Τιμή/ώρα", 0)
             if st.form_submit_button("Αποθήκευση"):
                 st.session_state.df_s = pd.concat([st.session_state.df_s, pd.DataFrame([[n, ph, pr]], columns=st.session_state.df_s.columns)], ignore_index=True)
                 save_all(); st.rerun()
+
     for i, r in st.session_state.df_s.iterrows():
         c1, c2, c3, c4, c5 = st.columns([2.5, 2, 1.5, 0.5, 0.5])
-        c1.write(f"👤 {r['Όνομα']}"); c2.write(r['Τηλέφωνο']); c3.write(f"{r['Τιμή']}€/ώρα")
+        # Ενέργεια: Click στο όνομα για άνοιγμα καρτέλας
+        if c1.button(f"👤 {r['Όνομα']}", key=f"n_btn_{i}"):
+            st.session_state.selected_student = r['Όνομα']
+            st.rerun()
+        c2.write(r['Τηλέφωνο'])
+        c3.write(f"{r['Τιμή']}€/ώρα")
         if c4.button("✏️", key=f"e_{i}"): st.session_state.edit_idx = i; st.rerun()
         if c5.button("🗑️", key=f"d_{i}"):
             st.session_state.df_l = st.session_state.df_l[st.session_state.df_l['Μαθητής'] != r['Όνομα']]
             st.session_state.df_s = st.session_state.df_s.drop(i).reset_index(drop=True)
             save_all(); st.rerun()
+    
     st.divider()
-    sel = st.selectbox("Προβολή καρτέλας:", ["-- Επιλογή --"] + st.session_state.df_s['Όνομα'].tolist())
-    if sel != "-- Επιλογή --":
+    
+    # Εμφάνιση καρτέλας αν έχει επιλεγεί μαθητής
+    if st.session_state.selected_student:
+        sel = st.session_state.selected_student
+        col_t, col_cl = st.columns([0.8, 0.2])
+        col_t.subheader(f"📂 Καρτέλα: {sel}")
+        if col_cl.button("❌ Κλείσιμο"):
+            st.session_state.selected_student = None
+            st.rerun()
+
         t1, t2, t3 = st.tabs(["💰 Οικονομικά & SMS", "📝 Σημειώσεις & Αρχεία", "📜 Ιστορικό"])
         with t2:
             with st.form("n_f", clear_on_submit=True):
@@ -299,7 +323,9 @@ def show_student_management():
 
 # --- ΚΥΡΙΑ ΕΦΑΡΜΟΓΗ ---
 def main():
-    st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚")
+    # Ενέργεια: Αυτόματο κλείσιμο μενού (initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
+    
     if "auth" not in st.session_state: st.session_state.auth = False
     
     if not st.session_state.auth:
@@ -322,7 +348,6 @@ def main():
                     if save_user(nu, np, nurl): st.success("Έτοιμο!"); st.rerun()
         return
 
-    # Check αν ο χρήστης υπάρχει ακόμα
     if st.session_state.user not in get_users()['username'].values:
         st.session_state.clear(); st.rerun()
 
@@ -346,17 +371,4 @@ def main():
                     msg = urllib.parse.quote(f"Υπενθυμίζω το μάθημα μας στις {r['Ώρα']}.")
                     c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={msg}")
     elif menu == "💰 Οικονομικά": show_finance_section()
-    elif menu == "👥 Μαθητές": show_student_management()
-    elif menu == "⚙️ Ρυθμίσεις":
-        with st.form("set_f"):
-            new_url = st.text_input("iCloud Link", value=st.session_state.cal_url)
-            if st.form_submit_button("Αποθήκευση"):
-                if update_user_data(st.session_state.user, new_url):
-                    st.session_state.cal_url = new_url; st.success("Αποθηκεύτηκε!"); st.rerun()
-        if st.checkbox("Οριστική Διαγραφή Λογαριασμού"):
-            if st.button("🗑️ Διαγραφή Τώρα", type="primary"):
-                delete_user_account(st.session_state.user)
-                st.session_state.clear(); st.rerun()
-
-if __name__ == "__main__":
-    main()
+    elif menu ==
