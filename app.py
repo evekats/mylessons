@@ -28,10 +28,17 @@ def hash_pw(pw):
 
 def get_users():
     sheet = get_gsheet_client()
-    if not sheet: return pd.DataFrame(columns=["username", "password", "cal_url"])
+    if not sheet: 
+        return pd.DataFrame(columns=["username", "password", "cal_url"])
     try:
-        return pd.DataFrame(sheet.worksheet("users").get_all_records())
-    except:
+        ws = sheet.worksheet("users")
+        data = ws.get_all_records()
+        if not data:
+            # Αν το φύλλο είναι άδειο, επέστρεψε κενούς τίτλους
+            return pd.DataFrame(columns=["username", "password", "cal_url"])
+        return pd.DataFrame(data)
+    except Exception as e:
+        st.error(f"Σφάλμα κατά την ανάγνωση των χρηστών: {e}")
         return pd.DataFrame(columns=["username", "password", "cal_url"])
 
 def save_user(username, password, cal_url):
