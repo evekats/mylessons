@@ -241,7 +241,15 @@ def show_finance_section():
                 else:
                     c2.write(f"**{r['Ποσό']}€**")
                     if c2.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
-                pay_val = c3.number_input("Πληρωμή", min_value=0.0, value=float(r['Ποσό']), key=f"pay_{i}")
+                pay_val = c3.number_input(
+    "Πληρωμή", 
+    min_value=0.0, 
+    value=float(r['Ποσό']), 
+    step=0.5,        # Επιτρέπει στο σύστημα να "δει" τα δεκαδικά των 50 λεπτών
+    format="%.2f",   # Αναγκάζει το κουτάκι να δείξει την υποδιαστολή (π.χ. 22.50)
+    key=f"pay_{i}"
+)
+
                 cp1, cp2 = c4.columns(2)
                 if cp1.button("✔️", key=f"ok_{i}"):
                     surplus = float(pay_val) - float(r['Ποσό'])
