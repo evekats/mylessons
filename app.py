@@ -17,14 +17,43 @@ if not os.path.exists(UPLOAD_DIR):
 
 def get_gsheet_client():
     try:
+        # 1. Έλεγχος αν υπάρχουν τα secrets
+        if "gcp_service_account" not in st.secrets:
+            st.error("Δεν βρέθηκαν τα secrets 'gcp_service_account' στο Streamlit.")
+            return None
+            
         creds_dict = st.secrets["gcp_service_account"]
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # 2. Αυθεντικοποίηση
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
-        return client.open("TeacherDatabase")
-    except Exception as e:
-        st.error(f"Σφάλμα σύνδεσης με Google Sheets: {e}")
+        
+        # 3. Άνοιγμα του αρχείου - Βεβαιώσου ότι το όνομα είναι ολόιδιο
+        sheet = client.open("TeacherDatabase")
+        return sheet
+        
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error("Το αρχείο 'TeacherDatabase' δεν βρέθηκε. Έχεις κάνει Share το αρχείο με το email του Service Account;")
         return None
+    except Exception as e:
+        st.error(f"Σφάλμα κατά τη σύνδεση: {str(e)}")
+        return None
+
+# --- ΔΙΟΡΘΩΜΕΝΗ load_data ΓΙΑ ΝΑ ΜΗΝ ΜΠΕΡΔΕΥΕΙ ΤΟ CLIENT ---
+def load_data(username):
+    sheet = get_gsheet_client()
+    if sheet is None:
+        return # Σταματάει εδώ αν δεν υπάρχει σύνδεση
+
+    try:
+        # Φόρτωση Μαθητών
+        ws_s = sheet.worksheet("students")
+        df_all_s = pd.DataFrame(ws_s.get_all_records())
+        # ... ο υπόλοιπος κώδικας load_data όπως πριν ...
 
 # --- ΣΥΝΑΡΤΗΣΕΙΣ ΑΣΦΑΛΕΙΑΣ & ΔΙΑΧΕΙΡΙΣΗΣ ΧΡΗΣΤΩΝ (CLOUD) ---
 def hash_pw(pw):
