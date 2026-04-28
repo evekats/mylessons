@@ -323,6 +323,26 @@ def show_student_management():
 
 # --- ΚΥΡΙΑ ΕΦΑΡΜΟΓΗ ---
 def main():
+# --- ΣΥΝΑΡΤΗΣΗ ΡΥΘΜΙΣΕΩΝ (Για να μην κρασάρει το μενού) ---
+def show_settings():
+    st.header("⚙️ Ρυθμίσεις Λογαριασμού")
+    with st.expander("🔗 Ενημέρωση iCloud Link & Password"):
+        with st.form("update_u"):
+            new_url = st.text_input("Νέο iCloud Link", value=st.session_state.cal_url)
+            new_pw = st.text_input("Νέος Κωδικός (άστο κενό αν δεν αλλάζεις)", type="password")
+            if st.form_submit_button("Αποθήκευση"):
+                if update_user_data(st.session_state.user, new_url, new_pw if new_pw else None):
+                    st.session_state.cal_url = new_url
+                    st.success("Τα στοιχεία ενημερώθηκαν!")
+                else: st.error("Σφάλμα ενημέρωσης.")
+    
+    if st.button("🔴 Διαγραφή Λογαριασμού", type="primary"):
+        delete_user_account(st.session_state.user)
+        st.session_state.clear()
+        st.rerun()
+
+# --- ΚΥΡΙΑ ΕΦΑΡΜΟΓΗ ---
+def main():
     # Ενέργεια: Αυτόματο κλείσιμο μενού (initial_sidebar_state="collapsed")
     st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
     
@@ -348,19 +368,24 @@ def main():
                     if save_user(nu, np, nurl): st.success("Έτοιμο!"); st.rerun()
         return
 
-    if st.session_state.user not in get_users()['username'].values:
+    # Έλεγχος αν ο χρήστης υπάρχει ακόμα στη βάση
+    users_df = get_users()
+    if st.session_state.user not in users_df['username'].values:
         st.session_state.clear(); st.rerun()
 
     load_data(st.session_state.user); auto_sync()
+    
     st.sidebar.title(f"👤 {st.session_state.user}")
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
     if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
 
-    if menu == "📊 Dashboard": show_dashboard()
+    if menu == "📊 Dashboard": 
+        show_dashboard()
     elif menu == "📅 Πρόγραμμα":
         st.header("📅 Πρόγραμμα")
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
-        if pend.empty: st.success("Δεν υπάρχουν προγραμματισμένα μαθήματα.")
+        if pend.empty: 
+            st.success("Δεν υπάρχουν προγραμματισμένα μαθήματα.")
         else:
             for i, r in pend.iterrows():
                 c1, c2, c3 = st.columns([3, 4, 2])
@@ -370,5 +395,12 @@ def main():
                 if not s_match.empty:
                     msg = urllib.parse.quote(f"Υπενθυμίζω το μάθημα μας στις {r['Ώρα']}.")
                     c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={msg}")
-    elif menu == "💰 Οικονομικά": show_finance_section()
-    elif menu ==
+    elif menu == "💰 Οικονομικά": 
+        show_finance_section()
+    elif menu == "👥 Μαθητές": 
+        show_student_management()
+    elif menu == "⚙️ Ρυθμίσεις":
+        show_settings()
+
+if __name__ == "__main__":
+    main()
