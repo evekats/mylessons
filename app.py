@@ -131,11 +131,15 @@ def save_data_to_sheet(df, tab_name, username):
         others = all_data[all_data['owner'] != username] if not all_data.empty and 'owner' in all_data.columns else pd.DataFrame()
         mine = df.copy()
         mine.insert(0, 'owner', username)
+        
+        # ΕΔΩ ΓΙΝΕΤΑΙ Η ΔΙΟΡΘΩΣΗ: Μετατροπή σε float πριν το save
         if 'Ποσό' in mine.columns:
             mine['Ποσό'] = pd.to_numeric(mine['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
+            
         final_df = pd.concat([others, mine], ignore_index=True).fillna("")
         ws.clear()
-        ws.update([final_df.columns.values.tolist()] + final_df.values.tolist())
+        # Χρήση USER_ENTERED για να αναγνωρίσει το Sheets τους δεκαδικούς αριθμούς
+        ws.update([final_df.columns.values.tolist()] + final_df.values.tolist(), value_input_option='USER_ENTERED')
     except: pass
 
 def load_data(username):
@@ -281,6 +285,7 @@ def show_finance_section():
                 pay_val = c3.number_input("Πληρωμή", min_value=0.0, value=float(r['Ποσό']), step=0.1, format="%.2f", key=f"pay_{i}")
                 cp1, cp2 = c4.columns(2)
                 if cp1.button("✔️", key=f"ok_{i}"):
+                    # Υπολογισμός αν υπάρχει πλεόνασμα για δημιουργία αρνητικής εγγραφής (surplus logic από τον αρχικό κώδικα)
                     surplus = float(pay_val) - float(r['Ποσό'])
                     st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
                     if surplus != 0:
@@ -458,14 +463,11 @@ def main():
 
     load_data(st.session_state.user)
 
-    # --- 2. ΔΙΑΧΕΙΡΙΣΗ ΜΕΝΟΥ ΚΑΙ ΑΥΤΟΜΑΤΟ ΚΛΕΙΣΙΜΟ ---
     if "menu_option" not in st.session_state: 
         st.session_state.menu_option = "📊 Dashboard"
     
-    # Το sidebar radio
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
     
-    # Αν η επιλογή άλλαξε, καλούμε το JS και κάνουμε rerun
     if menu != st.session_state.menu_option:
         st.session_state.menu_option = menu
         auto_collapse_sidebar()
