@@ -9,6 +9,22 @@ from datetime import datetime, timedelta, date
 import urllib.parse
 import hashlib
 from zoneinfo import ZoneInfo
+import streamlit.components.v1 as components
+
+# --- ΛΕΙΤΟΥΡΓΙΑ ΓΙΑ ΑΥΤΟΜΑΤΟ ΚΛΕΙΣΙΜΟ SIDEBAR ---
+def auto_collapse_sidebar():
+    components.html(
+        """
+        <script>
+        var sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+        var button = window.parent.document.querySelector('button[kind="headerNoPadding"]');
+        if (sidebar && sidebar.getAttribute('aria-expanded') === 'true') {
+            button.click();
+        }
+        </script>
+        """,
+        height=0,
+    )
 
 # --- Φάκελος για Uploads ---
 UPLOAD_DIR = "uploads"
@@ -363,7 +379,6 @@ def show_student_management():
         with t2:
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις")
-                # Αφαίρεση του κουμπιού διαγραφής ημερομηνίας εδώ
                 ex_date = st.date_input("Ημερομηνία Διαγωνίσματος", value=None, format="DD/MM/YYYY")
                 uploaded_file = st.file_uploader("Σύρετε ή επιλέξτε αρχείο για ανέβασμα", type=["pdf", "png", "jpg", "docx"])
                 manual_link = st.text_input("Ή επικολλήστε Link Αρχείου (Drive/Dropbox)")
@@ -421,7 +436,6 @@ def show_settings():
         st.session_state.clear(); st.rerun()
 
 def main():
-    # Αυτόματη απόκρυψη του Sidebar μετά από κάθε αλληλεπίδραση
     st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
     
     if "auth" not in st.session_state: st.session_state.auth = False
@@ -438,9 +452,19 @@ def main():
         return
 
     load_data(st.session_state.user)
+
+    # --- ΔΙΑΧΕΙΡΙΣΗ ΜΕΝΟΥ ΚΑΙ ΑΥΤΟΜΑΤΟ ΚΛΕΙΣΙΜΟ ---
+    if "menu_option" not in st.session_state: st.session_state.menu_option = "📊 Dashboard"
     
-    # Το sidebar θα εμφανίζεται μόνο όταν το πατάς και θα κλείνει όταν επιλέγεις κάτι
+    # Χρήση sidebar radio
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
+    
+    # Αν η επιλογή στο μενού αλλάξει, κλείσε το sidebar
+    if menu != st.session_state.menu_option:
+        st.session_state.menu_option = menu
+        auto_collapse_sidebar()
+        st.rerun()
+
     if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
 
     if menu == "📊 Dashboard": show_dashboard()
