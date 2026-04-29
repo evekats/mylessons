@@ -126,7 +126,6 @@ def load_data(username):
     st.session_state.df_l = load_data_from_sheet("lessons", username)
     if st.session_state.df_l.empty: st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
     
-    # Φόρτωση Σημειώσεων με αυτόματο καθαρισμό παλιών διαγωνισμάτων
     notes = load_data_from_sheet("notes", username)
     if notes.empty:
         st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
@@ -135,7 +134,6 @@ def load_data(username):
         def clear_old_exams(val):
             if not val or val == "": return ""
             try:
-                # Αν η ημερομηνία πέρασε, την σβήνουμε
                 if str(val) < today_str: return ""
                 return val
             except: return val
@@ -283,7 +281,7 @@ def show_finance_section():
             df_f = df_m[(df_m['m'] == month) & (df_m['y'] == year)]
             if not df_f.empty:
                 st.metric("💶 Συνολικά Έσοδα Μήνα", f"{df_f['Ποσό'].sum():.2f} €")
-                summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηθία': 'count'}).reset_index()
+                summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f}€"):
                         s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == row['Μαθητής']]
@@ -365,12 +363,9 @@ def show_student_management():
         with t2:
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις")
-                
-                # --- ΠΡΟΣΘΗΚΗ ΗΜΕΡΟΜΗΝΙΑΣ ΔΙΑΓΩΝΙΣΜΑΤΟΣ ΜΕ ΔΙΑΓΡΑΦΗ ---
                 col_ex1, col_ex2 = st.columns([2, 1])
-                ex_date = col_ex1.date_input("Ημερομηνία Διαγωνίσματος", value=None)
+                ex_date = col_ex1.date_input("Ημερομηνία Διαγωνίσματος", value=None, format="DD/MM/YYYY")
                 clear_date = col_ex2.checkbox("Διαγραφή ημερομηνίας")
-                
                 uploaded_file = st.file_uploader("Σύρετε ή επιλέξτε αρχείο για ανέβασμα", type=["pdf", "png", "jpg", "docx"])
                 manual_link = st.text_input("Ή επικολλήστε Link Αρχείου (Drive/Dropbox)")
                 
@@ -381,32 +376,34 @@ def show_student_management():
                         with open(file_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
                         final_link = file_path
-                        
                     d = datetime.now(ZoneInfo('Europe/Athens')).strftime('%d/%m/%Y')
-                    
-                    if clear_date:
-                        ex_val = ""
-                    else:
-                        ex_val = ex_date.strftime('%Y-%m-%d') if ex_date else ""
-                        
+                    ex_val = "" if clear_date else (ex_date.strftime('%Y-%m-%d') if ex_date else "")
                     new_n = pd.DataFrame([[sel, d, nt, final_link, ex_val]], columns=st.session_state.df_n.columns)
                     st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True)
                     save_all(); st.rerun()
-            for _, nr in st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1].iterrows():
-                with st.expander(f"📅 {nr['Ημερομηνία']}"):
-                    if nr['Σημειώσεις']: st.write(nr['Σημειώσεις'])
-                    if nr['Αρχείο']: 
-                        if nr['Αρχείο'].startswith("uploads"):
-                             with open(nr['Αρχείο'], "rb") as f:
-                                 st.download_button("📂 Λήψη Αρχείου", f, file_name=os.path.basename(nr['Αρχείο']))
-                        else:
-                            st.link_button("🔗 Άνοιγμα Συνδέσμου", nr['Αρχείο'])
-                    if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
-                        try:
-                            d_obj = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d')
-                            st.error(f"🚩 Διαγώνισμα: {d_obj.strftime('%d/%m/%Y')}")
-                        except:
-                            st.error(f"🚩 {nr['Διαγωνίσματα']}")
+            
+            # Εμφάνιση Σημειώσεων με κουμπί Διαγραφής (🗑️)
+            student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
+            for idx, nr in student_notes.iterrows():
+                col_n1, col_n2 = st.columns([0.9, 0.1])
+                with col_n1:
+                    with st.expander(f"📅 {nr['Ημερομηνία']}"):
+                        if nr['Σημειώσεις']: st.write(nr['Σημειώσεις'])
+                        if nr['Αρχείο']: 
+                            if nr['Αρχείο'].startswith("uploads"):
+                                 with open(nr['Αρχείο'], "rb") as f:
+                                     st.download_button("📂 Λήψη", f, file_name=os.path.basename(nr['Αρχείο']), key=f"dl_{idx}")
+                            else:
+                                st.link_button("🔗 Link", nr['Αρχείο'])
+                        if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
+                            try:
+                                d_obj = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d')
+                                st.error(f"🚩 Διαγώνισμα: {d_obj.strftime('%d/%m/%Y')}")
+                            except:
+                                st.error(f"🚩 {nr['Διαγωνίσματα']}")
+                if col_n2.button("🗑️", key=f"del_note_{idx}"):
+                    st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
+                    save_all(); st.rerun()
         with t3:
             hist = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel]
             st.dataframe(hist.iloc[::-1].drop(columns=['UID'], errors='ignore'), use_container_width=True)
@@ -426,7 +423,9 @@ def show_settings():
         st.session_state.clear(); st.rerun()
 
 def main():
+    # initial_sidebar_state="collapsed" για αυτόματο κλείσιμο του μενού
     st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
+    
     if "auth" not in st.session_state: st.session_state.auth = False
     if not st.session_state.auth:
         st.title("📚 MyLessons")
@@ -441,6 +440,8 @@ def main():
         return
 
     load_data(st.session_state.user)
+    
+    # Το μενού πλέον θα "κρύβεται" αυτόματα σε κάθε refresh/επιλογή λόγω του collapsed state
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
     if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
 
