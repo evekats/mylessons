@@ -11,15 +11,20 @@ import hashlib
 from zoneinfo import ZoneInfo
 import streamlit.components.v1 as components
 
-# --- ΛΕΙΤΟΥΡΓΙΑ ΓΙΑ ΑΥΤΟΜΑΤΟ ΚΛΕΙΣΙΜΟ SIDEBAR ---
+# --- 1. ΒΕΛΤΙΩΜΕΝΗ ΛΕΙΤΟΥΡΓΙΑ ΓΙΑ ΑΥΤΟΜΑΤΟ ΚΛΕΙΣΙΜΟ SIDEBAR ---
 def auto_collapse_sidebar():
     components.html(
         """
         <script>
-        var sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-        var button = window.parent.document.querySelector('button[kind="headerNoPadding"]');
-        if (sidebar && sidebar.getAttribute('aria-expanded') === 'true') {
-            button.click();
+        // Ψάχνουμε το κουμπί που ελέγχει το sidebar στο header
+        var button = window.parent.document.querySelector('button[aria-label="Close sidebar"]') || 
+                     window.parent.document.querySelector('button[data-testid="sidebar-close-button"]') ||
+                     window.parent.document.querySelector('button[kind="headerNoPadding"]');
+        
+        if (button) {
+            setTimeout(function() {
+                button.click();
+            }, 100);
         }
         </script>
         """,
@@ -453,19 +458,22 @@ def main():
 
     load_data(st.session_state.user)
 
-    # --- ΔΙΑΧΕΙΡΙΣΗ ΜΕΝΟΥ ΚΑΙ ΑΥΤΟΜΑΤΟ ΚΛΕΙΣΙΜΟ ---
-    if "menu_option" not in st.session_state: st.session_state.menu_option = "📊 Dashboard"
+    # --- 2. ΔΙΑΧΕΙΡΙΣΗ ΜΕΝΟΥ ΚΑΙ ΑΥΤΟΜΑΤΟ ΚΛΕΙΣΙΜΟ ---
+    if "menu_option" not in st.session_state: 
+        st.session_state.menu_option = "📊 Dashboard"
     
-    # Χρήση sidebar radio
+    # Το sidebar radio
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
     
-    # Αν η επιλογή στο μενού αλλάξει, κλείσε το sidebar
+    # Αν η επιλογή άλλαξε, καλούμε το JS και κάνουμε rerun
     if menu != st.session_state.menu_option:
         st.session_state.menu_option = menu
         auto_collapse_sidebar()
         st.rerun()
 
-    if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
+    if st.sidebar.button("🚪 Log out"): 
+        st.session_state.clear(); 
+        st.rerun()
 
     if menu == "📊 Dashboard": show_dashboard()
     elif menu == "📅 Πρόγραμμα":
