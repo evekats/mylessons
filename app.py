@@ -363,9 +363,8 @@ def show_student_management():
         with t2:
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις")
-                col_ex1, col_ex2 = st.columns([2, 1])
-                ex_date = col_ex1.date_input("Ημερομηνία Διαγωνίσματος", value=None, format="DD/MM/YYYY")
-                clear_date = col_ex2.checkbox("Διαγραφή ημερομηνίας")
+                # Αφαίρεση του κουμπιού διαγραφής ημερομηνίας εδώ
+                ex_date = st.date_input("Ημερομηνία Διαγωνίσματος", value=None, format="DD/MM/YYYY")
                 uploaded_file = st.file_uploader("Σύρετε ή επιλέξτε αρχείο για ανέβασμα", type=["pdf", "png", "jpg", "docx"])
                 manual_link = st.text_input("Ή επικολλήστε Link Αρχείου (Drive/Dropbox)")
                 
@@ -377,12 +376,11 @@ def show_student_management():
                             f.write(uploaded_file.getbuffer())
                         final_link = file_path
                     d = datetime.now(ZoneInfo('Europe/Athens')).strftime('%d/%m/%Y')
-                    ex_val = "" if clear_date else (ex_date.strftime('%Y-%m-%d') if ex_date else "")
+                    ex_val = ex_date.strftime('%Y-%m-%d') if ex_date else ""
                     new_n = pd.DataFrame([[sel, d, nt, final_link, ex_val]], columns=st.session_state.df_n.columns)
                     st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True)
                     save_all(); st.rerun()
             
-            # Εμφάνιση Σημειώσεων με κουμπί Διαγραφής (🗑️)
             student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
             for idx, nr in student_notes.iterrows():
                 col_n1, col_n2 = st.columns([0.9, 0.1])
@@ -423,7 +421,7 @@ def show_settings():
         st.session_state.clear(); st.rerun()
 
 def main():
-    # initial_sidebar_state="collapsed" για αυτόματο κλείσιμο του μενού
+    # Αυτόματη απόκρυψη του Sidebar μετά από κάθε αλληλεπίδραση
     st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
     
     if "auth" not in st.session_state: st.session_state.auth = False
@@ -441,7 +439,7 @@ def main():
 
     load_data(st.session_state.user)
     
-    # Το μενού πλέον θα "κρύβεται" αυτόματα σε κάθε refresh/επιλογή λόγω του collapsed state
+    # Το sidebar θα εμφανίζεται μόνο όταν το πατάς και θα κλείνει όταν επιλέγεις κάτι
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
     if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
 
