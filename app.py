@@ -5,7 +5,7 @@ from google.oauth2.service_account import Credentials
 import os
 import requests
 from icalendar import Calendar
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import urllib.parse
 import hashlib
 from zoneinfo import ZoneInfo
@@ -125,8 +125,23 @@ def load_data(username):
     if st.session_state.df_s.empty: st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
     st.session_state.df_l = load_data_from_sheet("lessons", username)
     if st.session_state.df_l.empty: st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
-    st.session_state.df_n = load_data_from_sheet("notes", username)
-    if st.session_state.df_n.empty: st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
+    
+    # Φόρτωση Σημειώσεων με αυτόματο καθαρισμό παλιών διαγωνισμάτων
+    notes = load_data_from_sheet("notes", username)
+    if notes.empty:
+        st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
+    else:
+        today_str = datetime.now(ZoneInfo('Europe/Athens')).strftime('%Y-%m-%d')
+        def clear_old_exams(val):
+            if not val or val == "": return ""
+            try:
+                # Αν η ημερομηνία πέρασε, την σβήνουμε
+                if str(val) < today_str: return ""
+                return val
+            except: return val
+        notes['Διαγωνίσματα'] = notes['Διαγωνίσματα'].apply(clear_old_exams)
+        st.session_state.df_n = notes
+        
     st.session_state.last_load = datetime.now()
 
 def save_all():
@@ -199,7 +214,12 @@ def show_dashboard():
         st.subheader("📅 Διαγωνίσματα")
         exams = st.session_state.df_n[st.session_state.df_n['Διαγωνίσματα'].notna() & (st.session_state.df_n['Διαγωνίσματα'] != "")]
         if not exams.empty:
-            for _, r in exams.iterrows(): st.warning(f"**{r['Μαθητής']}**: {r['Διαγωνίσματα']}")
+            for _, r in exams.iterrows():
+                try:
+                    d_obj = datetime.strptime(r['Διαγωνίσματα'], '%Y-%m-%d')
+                    st.warning(f"**{r['Μαθητής']}**: {d_obj.strftime('%d/%m/%Y')}")
+                except:
+                    st.warning(f"**{r['Μαθητής']}**: {r['Διαγωνίσματα']}")
         else: st.info("Κανένα διαγώνισμα.")
 
 def show_finance_section():
@@ -226,7 +246,6 @@ def show_finance_section():
         if unpaid.empty: st.success("Όλα εξοφλημένα!")
         else:
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
-            # --- ΤΑΞΙΝΟΜΗΣΗ ΦΘΙΝΟΥΣΑ (νεότερα πάνω) ---
             unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
@@ -264,12 +283,11 @@ def show_finance_section():
             df_f = df_m[(df_m['m'] == month) & (df_m['y'] == year)]
             if not df_f.empty:
                 st.metric("💶 Συνολικά Έσοδα Μήνα", f"{df_f['Ποσό'].sum():.2f} €")
-                summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
+                summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηθία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f}€"):
                         s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == row['Μαθητής']]
                         if not s_info.empty:
-                            # --- ΑΝΑΛΥΤΙΚΟ SMS (ΣΥΝΟΛΟ - ΠΛΗΡΩΜΕΝΑ - ΥΠΟΛΟΙΠΟ) ---
                             total_month = row['Ημερομηνία']
                             paid_month = len(df_f[(df_f['Μαθητής'] == row['Μαθητής']) & (df_f['Πληρώθηκε'] == 'Ναι')])
                             unpaid_amt = df_f[(df_f['Μαθητής'] == row['Μαθητής']) & (df_f['Πληρώθηκε'] == 'Όχι')]['Ποσό'].sum()
@@ -345,10 +363,14 @@ def show_student_management():
                 st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
                 save_all(); st.rerun()
         with t2:
-            # --- DRAG & DROP UPLOAD & ΣΗΜΕΙΩΣΕΙΣ ---
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις")
-                ex = st.text_input("Διαγώνισμα")
+                
+                # --- ΠΡΟΣΘΗΚΗ ΗΜΕΡΟΜΗΝΙΑΣ ΔΙΑΓΩΝΙΣΜΑΤΟΣ ΜΕ ΔΙΑΓΡΑΦΗ ---
+                col_ex1, col_ex2 = st.columns([2, 1])
+                ex_date = col_ex1.date_input("Ημερομηνία Διαγωνίσματος", value=None)
+                clear_date = col_ex2.checkbox("Διαγραφή ημερομηνίας")
+                
                 uploaded_file = st.file_uploader("Σύρετε ή επιλέξτε αρχείο για ανέβασμα", type=["pdf", "png", "jpg", "docx"])
                 manual_link = st.text_input("Ή επικολλήστε Link Αρχείου (Drive/Dropbox)")
                 
@@ -358,10 +380,16 @@ def show_student_management():
                         file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
                         with open(file_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
-                        final_link = file_path # Εδώ αποθηκεύεται το τοπικό path
+                        final_link = file_path
                         
                     d = datetime.now(ZoneInfo('Europe/Athens')).strftime('%d/%m/%Y')
-                    new_n = pd.DataFrame([[sel, d, nt, final_link, ex]], columns=st.session_state.df_n.columns)
+                    
+                    if clear_date:
+                        ex_val = ""
+                    else:
+                        ex_val = ex_date.strftime('%Y-%m-%d') if ex_date else ""
+                        
+                    new_n = pd.DataFrame([[sel, d, nt, final_link, ex_val]], columns=st.session_state.df_n.columns)
                     st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True)
                     save_all(); st.rerun()
             for _, nr in st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1].iterrows():
@@ -373,7 +401,12 @@ def show_student_management():
                                  st.download_button("📂 Λήψη Αρχείου", f, file_name=os.path.basename(nr['Αρχείο']))
                         else:
                             st.link_button("🔗 Άνοιγμα Συνδέσμου", nr['Αρχείο'])
-                    if nr['Διαγωνίσματα']: st.error(f"🚩 {nr['Διαγωνίσματα']}")
+                    if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
+                        try:
+                            d_obj = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d')
+                            st.error(f"🚩 Διαγώνισμα: {d_obj.strftime('%d/%m/%Y')}")
+                        except:
+                            st.error(f"🚩 {nr['Διαγωνίσματα']}")
         with t3:
             hist = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel]
             st.dataframe(hist.iloc[::-1].drop(columns=['UID'], errors='ignore'), use_container_width=True)
@@ -417,7 +450,6 @@ def main():
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
         if pend.empty: st.success("Κανένα προγραμματισμένο μάθημα.")
         else:
-            # --- ΤΑΞΙΝΟΜΗΣΗ ΑΥΞΟΥΣΑ (τα επόμενα πάνω) ---
             pend['temp_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             pend = pend.sort_values('temp_dt').drop(columns=['temp_dt'])
             for i, r in pend.iterrows():
