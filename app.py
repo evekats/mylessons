@@ -143,11 +143,22 @@ def load_data(username):
     if 'last_load' in st.session_state:
         if (datetime.now() - st.session_state.last_load).total_seconds() < 10:
             return
+            
+    # Φόρτωση μαθητών
     st.session_state.df_s = load_data_from_sheet("students", username)
-    if st.session_state.df_s.empty: st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
-    st.session_state.df_l = load_data_from_sheet("lessons", username)
-    if st.session_state.df_l.empty: st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
+    if st.session_state.df_s.empty: 
+        st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
     
+    # Φόρτωση μαθημάτων
+    df_l_raw = load_data_from_sheet("lessons", username)
+    if df_l_raw.empty:
+        st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
+    else:
+        # ΚΡΙΣΙΜΗ ΔΙΟΡΘΩΣΗ: Μετατροπή της στήλης Ποσό σε float64 αμέσως μετά τη φόρτωση
+        df_l_raw['Ποσό'] = pd.to_numeric(df_l_raw['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0).astype(float)
+        st.session_state.df_l = df_l_raw
+
+    # Φόρτωση σημειώσεων
     notes = load_data_from_sheet("notes", username)
     if notes.empty:
         st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
@@ -163,6 +174,7 @@ def load_data(username):
         st.session_state.df_n = notes
         
     st.session_state.last_load = datetime.now()
+
 
 def save_all():
     user = st.session_state.user
