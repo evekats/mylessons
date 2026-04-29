@@ -112,7 +112,6 @@ def load_data_from_sheet(tab_name, username):
         if not df_all.empty and 'owner' in df_all.columns:
             df_filtered = df_all[df_all['owner'] == username].drop(columns=['owner']).reset_index(drop=True)
             
-            # ΔΙΟΡΘΩΣΗ: Μετατροπή Ποσού και Τιμής σε καθαρούς αριθμούς για αποφυγή σφαλμάτων (π.χ. 150 αντί 15)
             if 'Ποσό' in df_filtered.columns:
                 df_filtered['Ποσό'] = pd.to_numeric(df_filtered['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             if 'Τιμή' in df_filtered.columns:
@@ -132,13 +131,11 @@ def save_data_to_sheet(df, tab_name, username):
         mine = df.copy()
         mine.insert(0, 'owner', username)
         
-        # Μετατροπή σε float πριν το save για σιγουριά
         if 'Ποσό' in mine.columns:
             mine['Ποσό'] = pd.to_numeric(mine['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             
         final_df = pd.concat([others, mine], ignore_index=True).fillna("")
         ws.clear()
-        # USER_ENTERED: Αναγκάζει το Sheets να δει τα νούμερα ως αριθμούς και όχι κείμενο
         ws.update([final_df.columns.values.tolist()] + final_df.values.tolist(), value_input_option='USER_ENTERED')
     except: pass
 
@@ -204,7 +201,6 @@ def auto_sync():
                 match = next((s for _, s in st.session_state.df_s.iterrows() if s['Όνομα'].lower() in summary.lower()), None)
                 if match is not None:
                     d_str, t_start, t_end = start.strftime('%d/%m/%Y'), start.strftime('%H:%M'), end.strftime('%H:%M')
-                    # ΔΙΟΡΘΩΣΗ: Ρητή μετατροπή της τιμής σε float πριν τον πολλαπλασιασμό
                     hourly_rate = float(str(match['Τιμή']).replace(',', '.'))
                     duration = (end - start).total_seconds() / 3600
                     price = round(duration * hourly_rate, 2)
@@ -269,6 +265,10 @@ def show_finance_section():
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
                         save_all(); st.rerun()
         st.divider()
+        
+        # ΠΡΟΛΗΠΤΙΚΗ ΜΕΤΑΤΡΟΠΗ ΤΥΠΟΥ ΓΙΑ ΑΠΟΦΥΓΗ ΤΟΥ TYPEERROR
+        st.session_state.df_l['Ποσό'] = pd.to_numeric(st.session_state.df_l['Ποσό'], errors='coerce').fillna(0.0)
+        
         unpaid = st.session_state.df_l[(st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι") & (st.session_state.df_l['Ποσό'] > 0)].copy()
         if unpaid.empty: st.success("Όλα εξοφλημένα!")
         else:
@@ -280,6 +280,7 @@ def show_finance_section():
                 if st.session_state.get(f"edit_{i}"):
                     new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), step=0.1, format="%.2f", key=f"new_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
+                        # Εδώ γινόταν το σφάλμα - τώρα το df_l έχει ήδη μετατραπεί σε numeric
                         st.session_state.df_l.at[i, 'Ποσό'] = float(new_amt)
                         st.session_state[f"edit_{i}"] = False; save_all(); st.rerun()
                 else:
@@ -323,7 +324,7 @@ def show_finance_section():
                                         f"εκ των οποίων έχουν πληρωθεί τα {paid_month}. "
                                         f"Το υπόλοιπο ποσό είναι {unpaid_amt:.2f}€.")
                             txt_encoded = urllib.parse.quote(sms_text)
-                            st.link_button(f"📱 Αποστολή Αναφοράς SMS", f"sms:{s_info.iloc[0]['Τηλέφωνο']}?body={txt_encoded}")
+                            st.link_button(f"📱 Αποστολή Αναφοράς SMS", f"sms:{str(s_info.iloc[0]['Τηλέφωνο']).split('.')[0]}?body={txt_encoded}")
                         for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']} ({det['Ώρα']}-{det['Λήξη']}): {det['Ποσό']:.2f}€")
 
@@ -358,7 +359,6 @@ def show_student_management():
                         st.session_state[f"edit_student_{i}"] = False
                         save_all(); st.rerun()
             else:
-                # ΔΙΟΡΘΩΣΗ ΤΗΛΕΦΩΝΟΥ: Μετατροπή σε string και αφαίρεση του .0 αν υπάρχει
                 phone_val = str(r['Τηλέφωνο']).split('.')[0] if r['Τηλέφωνο'] and str(r['Τηλέφωνο']) != 'nan' else "Χωρίς Τηλ."
                 c2.write(phone_val)
                 c3.write(f"{r['Τιμή']}€/ώρα")
@@ -474,7 +474,6 @@ def main():
                 s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
                 if not s_match.empty:
                     msg = urllib.parse.quote(f"Υπενθυμίζω το μάθημα μας στις {r['Ώρα']}.")
-                    # ΔΙΟΡΘΩΣΗ ΤΗΛΕΦΩΝΟΥ: Ασφαλής μετατροπή για το SMS Link
                     ph_clean = str(s_match.iloc[0]['Τηλέφωνο']).split('.')[0]
                     c3.link_button("📱 SMS", f"sms:{ph_clean}?body={msg}")
     elif menu == "💰 Οικονομικά": show_finance_section()
