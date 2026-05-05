@@ -251,7 +251,7 @@ def show_finance_section():
                     if st.form_submit_button("Προσθήκη"):
                         uid_m = f"manual_{datetime.now().timestamp()}"
                         ts, te = (t_m.split("-")[0].strip(), t_m.split("-")[1].strip()) if "-" in t_m else (t_m, t_m)
-                        new_l = pd.DataFrame([[sel_m, d_m, ts, te, float(p_m), "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
+                        new_l = pd.DataFrame([[sel_m, d_m, ts, te, float(p_m), "Ολοκληρωθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
                         save_all(); st.rerun()
         st.divider()
@@ -261,7 +261,8 @@ def show_finance_section():
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
-                c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 3])
+                # --- ΑΛΛΑΓΗ 1: ΔΙΟΡΘΩΣΗ ΣΤΙΣ ΣΤΗΛΕΣ ΓΙΑ ΤΟ ΜΟΛΥΒΑΚΙ ΚΑΙ ΤΑ OK/X ---
+                c1, c2, c3, c4 = st.columns([3, 2, 1.5, 2.5])
                 try:
                     t1 = datetime.strptime(r['Ώρα'], '%H:%M')
                     t2 = datetime.strptime(r['Λήξη'], '%H:%M')
@@ -281,11 +282,14 @@ def show_finance_section():
                         st.session_state[f"edit_{i}"] = False
                         save_all(); st.rerun()
                 else:
-                    c2.write(f"**{r['Ποσό']:.2f} €**")
-                    if c2.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
+                    # Εδώ το μολυβάκι μπαίνει δίπλα στο ποσό
+                    cc1, cc2 = c2.columns([2, 1])
+                    cc1.write(f"**{r['Ποσό']:.2f} €**")
+                    if cc2.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
                 
-                pay_val = c3.number_input("Είσπραξη", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}", format="%.2f")
+                pay_val = c3.number_input("Είσπρ.", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}", format="%.2f", label_visibility="collapsed")
                 
+                # Εδώ το τικ και το Χ μπαίνουν στην ίδια σειρά
                 btn_col1, btn_col2 = c4.columns(2)
                 if btn_col1.button("✔️", key=f"ok_{i}"):
                     diff = round(float(pay_val) - float(r['Ποσό']), 2)
@@ -311,7 +315,6 @@ def show_finance_section():
             df_f = df_m[(df_m['m'] == month) & (df_m['y'] == year)]
             
             if not df_f.empty:
-                # ΕΠΙΛΟΓΗ ΜΑΘΗΤΩΝ ΓΙΑ ΥΠΟΛΟΓΙΣΜΟ ΕΣΟΔΩΝ
                 all_students_in_month = sorted(df_f['Μαθητής'].unique().tolist())
                 selected_students = st.multiselect("Επιλογή Μαθητών για Σύνολο", all_students_in_month, default=all_students_in_month)
                 
@@ -381,7 +384,6 @@ def show_student_management():
                     if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
                     if st.button("🗑️", key=f"dn_{idx}"): st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True); save_all(); st.rerun()
         with t3:
-            # ΠΛΗΡΕΣ ΙΣΤΟΡΙΚΟ: ΟΛΑ ΤΑ ΟΛΟΚΛΗΡΩΜΕΝΑ (ΕΞΟΦΛΗΜΕΝΑ & ΑΝΕΞΟΦΛΗΤΑ)
             hist = st.session_state.df_l[
                 (st.session_state.df_l['Μαθητής'] == sel) & 
                 (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε")
@@ -390,15 +392,15 @@ def show_student_management():
             if hist.empty:
                 st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα.")
             else:
-                # Ταξινόμηση ώστε τα πιο πρόσφατα να είναι πάνω
                 hist['temp_dt'] = pd.to_datetime(hist['Ημερομηνία'], format="%d/%m/%Y", errors='coerce')
                 hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
                 
                 for idx, hr in hist.iterrows():
-                    hc1, hc2, hc3 = st.columns([6, 2, 1])
+                    # --- ΑΛΛΑΓΗ 2: ΤΟ ΚΑΔΑΚΙ ΣΤΗΝ ΙΔΙΑ ΣΕΙΡΑ ΜΕ ΤΟ ΙΣΤΟΡΙΚΟ ---
+                    hc1, hc2 = st.columns([8, 1])
                     icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
                     hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
-                    if hc3.button("🗑️", key=f"del_hist_{idx}"):
+                    if hc2.button("🗑️", key=f"del_hist_{idx}"):
                         st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
                         save_all(); st.rerun()
 
@@ -442,7 +444,6 @@ def main():
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
         if pend.empty: st.success("Κανένα μάθημα.")
         else:
-            # ΤΑΞΙΝΟΜΗΣΗ ΑΠΟ ΚΟΝΤΙΝΟ ΣΕ ΜΑΚΡΙΝΟ
             pend['temp_sort_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             pend = pend.sort_values('temp_sort_dt', ascending=True).drop(columns=['temp_sort_dt'])
             
