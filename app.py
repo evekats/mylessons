@@ -26,7 +26,7 @@ def auto_collapse_sidebar():
     )
 
 # --- ΑΠΟΘΗΚΕΥΣΗ ΣΕ EXCEL ΑΝΤΙ ΓΙΑ GOOGLE SHEETS ---
-DB_FILE = "lessons_data.xlsx"
+DB_FILE = "mylessons.xlsx"
 
 def load_excel_tab(tab_name):
     if not os.path.exists(DB_FILE):
