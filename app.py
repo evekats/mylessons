@@ -278,29 +278,52 @@ def show_finance_section():
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
-                c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
-                c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
-                if st.session_state.get(f"edit_{i}"):
-                    new_amt = c2.number_input("Νέο Ποσό", value=float(r['Ποσό']), step=0.1, format="%.2f", key=f"new_{i}")
-                    if c2.button("💾", key=f"sv_{i}"):
-                        st.session_state.df_l.at[i, 'Ποσό'] = float(new_amt)
-                        st.session_state[f"edit_{i}"] = False; save_all(); st.rerun()
-                else:
-                    c2.write(f"**{r['Ποσό']:.2f}€**")
-                    if c2.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
-                
-                pay_val = c3.number_input("Πληρωμή", min_value=0.0, value=float(r['Ποσό']), step=0.1, format="%.2f", key=f"pay_{i}")
-                cp1, cp2 = c4.columns(2)
-                if cp1.button("✔️", key=f"ok_{i}"):
-                    # Υπολογισμός αν υπάρχει πλεόνασμα για δημιουργία αρνητικής εγγραφής (surplus logic από τον αρχικό κώδικα)
-                    surplus = float(pay_val) - float(r['Ποσό'])
-                    st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
-                    if surplus != 0:
-                        new_adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], r['Ώρα'], r['Λήξη'], -surplus, "Ολοκληρώθηκε", "Όχι", f"adj_{i}"]], columns=st.session_state.df_l.columns)
-                        st.session_state.df_l = pd.concat([st.session_state.df_l, new_adj], ignore_index=True)
-                    save_all(); st.rerun()
-                if cp2.button("❌", key=f"can_{i}"):
-                    st.session_state.df_l.at[i, 'Κατάσταση'] = "Ακυρώθηκε"; save_all(); st.rerun()
+    c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
+    
+    # 1. Υπολογισμός τρέχουσας διάρκειας σε ώρες (π.χ. 1.5)
+    t1 = datetime.strptime(r['Ώρα'], '%H:%M')
+    t2 = datetime.strptime(r['Λήξη'], '%H:%M')
+    current_hours = (t2 - t1).seconds / 3600
+    
+    c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
+    
+    # 2. Διαχείριση Διάρκειας (Αντί για Ποσό)
+    if st.session_state.get(f"edit_{i}"):
+        new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}")
+        if c2.button("💾", key=f"sv_{i}"):
+            # Βρίσκουμε την τιμή του μαθητή
+            s_price = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]['Τιμή'].values[0]
+            # Ενημερώνουμε το Ποσό και τη Λήξη (οπτικά)
+            new_finish = (t1 + timedelta(hours=new_h)).strftime('%H:%M')
+            st.session_state.df_l.at[i, 'Λήξη'] = new_finish
+            st.session_state.df_l.at[i, 'Ποσό'] = round(float(new_h * s_price), 2)
+            # Κλειδώνουμε το UID για να μην το αλλάξει το iCloud
+            if not str(st.session_state.df_l.at[i, 'UID']).startswith('locked_'):
+                st.session_state.df_l.at[i, 'UID'] = f"locked_{st.session_state.df_l.at[i, 'UID']}"
+            
+            st.session_state[f"edit_{i}"] = False
+            save_all(); st.rerun()
+    else:
+        c2.write(f"**{r['Ποσό']:.2f}€**")
+        if c2.button("✏️", key=f"ed_{i}"):
+            st.session_state[f"edit_{i}"] = True; st.rerun()
+    
+    # 3. Πληρωμή & Δημιουργία Πλεονάσματος/Ελλείμματος
+    pay_val = c3.number_input("Είσπραξη", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}")
+    
+    if c4.button("✔️ Ολοκλήρωση", key=f"ok_{i}"):
+        diff = round(float(pay_val) - float(r['Ποσό']), 2)
+        st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
+        
+        # Αν υπάρχει διαφορά (πλεόνασμα ή έλλειμμα), δημιούργησε αρνητική/θετική εγγραφή
+        if diff != 0:
+            new_uid = f"adj_{datetime.now().timestamp()}"
+            # Η νέα εγγραφή έχει το υπόλοιπο (αν έδωσε 50€ για μάθημα 40€, το diff είναι 10€, άρα το νέο μάθημα είναι -10€)
+            adj_entry = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], "00:00", "00:00", -diff, "Ολοκληρώθηκε", "Όχι", new_uid]], 
+                                     columns=st.session_state.df_l.columns)
+            st.session_state.df_l = pd.concat([st.session_state.df_l, adj_entry], ignore_index=True)
+        
+        save_all(); st.rerun()
 
     with tab_r:
         gr_tz = ZoneInfo('Europe/Athens')
