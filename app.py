@@ -16,7 +16,6 @@ def auto_collapse_sidebar():
     components.html(
         """
         <script>
-        // Ψάχνουμε το κουμπί που ελέγχει το sidebar στο header
         var button = window.parent.document.querySelector('button[aria-label="Close sidebar"]') || 
                      window.parent.document.querySelector('button[data-testid="sidebar-close-button"]') ||
                      window.parent.document.querySelector('button[kind="headerNoPadding"]');
@@ -63,7 +62,6 @@ def get_users():
             return pd.DataFrame(columns=["username", "password", "cal_url"])
         return pd.DataFrame(data)
     except Exception as e:
-        st.error(f"Σφάλμα κατά την ανάγνωση των χρηστών: {e}")
         return pd.DataFrame(columns=["username", "password", "cal_url"])
 
 def save_user(username, password, cal_url):
@@ -104,7 +102,8 @@ def delete_user_account(username):
         if not data.empty and 'owner' in data.columns:
             filtered = data[data['owner'] != username]
             ws.clear()
-            ws.update([filtered.columns.values.tolist()] + filtered.values.tolist())
+            if not filtered.empty:
+                ws.update([filtered.columns.values.tolist()] + filtered.values.tolist())
 
 # --- ΦΟΡΤΩΣΗ & ΑΠΟΘΗΚΕΥΣΗ ---
 @st.cache_data(ttl=600)
@@ -130,7 +129,10 @@ def save_data_to_sheet(df, tab_name, username):
         all_data = pd.DataFrame(ws.get_all_records())
         others = all_data[all_data['owner'] != username] if not all_data.empty and 'owner' in all_data.columns else pd.DataFrame()
         mine = df.copy()
-        mine.insert(0, 'owner', username)
+        if 'owner' not in mine.columns:
+            mine.insert(0, 'owner', username)
+        else:
+            mine['owner'] = username
         
         if 'Ποσό' in mine.columns:
             mine['Ποσό'] = pd.to_numeric(mine['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
@@ -148,8 +150,10 @@ def load_data(username):
     st.session_state.df_s = load_data_from_sheet("students", username)
     if st.session_state.df_s.empty: 
         st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
+    else:
+        # Διασφάλιση ότι η Τιμή είναι αριθμός
+        st.session_state.df_s['Τιμή'] = pd.to_numeric(st.session_state.df_s['Τιμή'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
     
-    # --- ΔΙΟΡΘΩΣΗ 1: ΜΟΝΙΜΑ ΔΕΚΑΔΙΚΑ ---
     df_l_raw = load_data_from_sheet("lessons", username)
     if df_l_raw.empty:
         st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
@@ -185,7 +189,6 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
-        # Αγνοούμε τα "locked_" UIDs κατά τον συγχρονισμό
         st.session_state.df_l = st.session_state.df_l[
             (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
             (st.session_state.df_l['UID'].astype(str).str.startswith('manual_'))
@@ -196,7 +199,6 @@ def auto_sync():
         for comp in gcal.walk('VEVENT'):
             summary, uid = str(comp.get('summary', '')), str(comp.get('uid', ''))
             
-            # Έλεγχος αν το μάθημα είναι κλειδωμένο από τον χρήστη
             if not st.session_state.df_l.empty:
                 if not st.session_state.df_l[st.session_state.df_l['UID'] == f"locked_{uid}"].empty:
                     continue
@@ -293,17 +295,11 @@ def show_finance_section():
                 
                 c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
                 
-                # --- ΔΙΟΡΘΩΣΗ 2: ΜΟΛΥΒΑΚΙ ΜΕ LOCKED UID ---
                 if st.session_state.get(f"edit_{i}"):
                     new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
                         s_price_row = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
-                        
-                        if not s_price_row.empty:
-                            raw_val = s_price_row['Τιμή'].values[0]
-                            s_price = float(pd.to_numeric(str(raw_val).replace(',', '.'), errors='coerce') or 0.0)
-                        else:
-                            s_price = 0.0
+                        s_price = float(s_price_row['Τιμή'].values[0]) if not s_price_row.empty else 0.0
                         
                         new_finish = (t1 + timedelta(hours=new_h)).strftime('%H:%M')
                         st.session_state.df_l.at[i, 'Λήξη'] = new_finish
@@ -314,13 +310,7 @@ def show_finance_section():
                             st.session_state.df_l.at[i, 'UID'] = f"locked_{current_uid}"
                         
                         st.session_state[f"edit_{i}"] = False
-                        save_all()
-                        st.rerun()
-                else:
-                    c2.write(f"**{r['Ποσό']:.2f}€**")
-                    if c2.button("✏️", key=f"ed_{i}"):
-                        st.session_state[f"edit_{i}"] = True
-                        st.rerun()
+                        save_all(); st.rerun()
                 else:
                     c2.write(f"**{r['Ποσό']:.2f}€**")
                     if c2.button("✏️", key=f"ed_{i}"):
@@ -452,9 +442,11 @@ def show_student_management():
                     with st.expander(f"📅 {nr['Ημερομηνία']}"):
                         if nr['Σημειώσεις']: st.write(nr['Σημειώσεις'])
                         if nr['Αρχείο']: 
-                            if nr['Αρχείο'].startswith("uploads"):
-                                 with open(nr['Αρχείο'], "rb") as f:
-                                     st.download_button("📂 Λήψη", f, file_name=os.path.basename(nr['Αρχείο']), key=f"dl_{idx}")
+                            if str(nr['Αρχείο']).startswith("uploads"):
+                                 try:
+                                     with open(nr['Αρχείο'], "rb") as f:
+                                         st.download_button("📂 Λήψη", f, file_name=os.path.basename(nr['Αρχείο']), key=f"dl_{idx}")
+                                 except: st.error("Το αρχείο δεν βρέθηκε.")
                             else: st.link_button("🔗 Link", nr['Αρχείο'])
                         if nr['Διαγωνίσματα'] != "": st.error(f"🚩 Διαγώνισμα: {nr['Διαγωνίσματα']}")
                 if col_n2.button("🗑️", key=f"del_note_{idx}"):
