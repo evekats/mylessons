@@ -29,11 +29,9 @@ def auto_collapse_sidebar():
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
-# ΚΑΘΑΡΙΣΜΟΣ ΝΟΜΙΣΜΑΤΟΣ: Μετατρέπει το "15,00 €" σε 15.0 (float) για υπολογισμούς
 def clean_currency(value):
-    if value is None or value == "": return 0.0
+    if value is None or value == "" or str(value).strip() == "#ERROR!": return 0.0
     s = str(value).replace('€', '').strip()
-    # Διαχείριση ευρωπαϊκού format (π.χ. 1.200,50)
     if ',' in s and '.' in s:
         s = s.replace('.', '').replace(',', '.')
     elif ',' in s:
@@ -57,7 +55,7 @@ def get_gsheet_client():
         client = gspread.authorize(creds)
         return client.open("mylessons")
     except Exception as e:
-        st.error(f"Σφάλμα σύνδεσης με Google Sheets: {e}")
+        st.error(f"Σφάλμα σύνδεσης: {e}")
         return None
 
 # --- 3. ΔΙΑΧΕΙΡΙΣΗ ΧΡΗΣΤΩΝ ---
@@ -109,7 +107,6 @@ def load_data_from_sheet(tab_name, username):
         ws = sheet.worksheet(tab_name)
         df_all = pd.DataFrame(ws.get_all_records())
         if not df_all.empty and 'owner' in df_all.columns:
-            # Φιλτράρισμα βάσει χρήστη
             df_filtered = df_all[df_all['owner'] == username].drop(columns=['owner']).reset_index(drop=True)
             return df_filtered
         return pd.DataFrame()
@@ -125,27 +122,23 @@ def save_data_to_sheet(df, tab_name, username):
         mine = df.copy()
         if 'owner' not in mine.columns: mine.insert(0, 'owner', username)
         else: mine['owner'] = username
-        
         final_df = pd.concat([others, mine], ignore_index=True).fillna("")
         ws.clear()
-        # Χρήση USER_ENTERED για να διατηρείται το Currency format του Sheets
         ws.update([final_df.columns.values.tolist()] + final_df.values.tolist(), value_input_option='USER_ENTERED')
     except: pass
 
 def load_data(username):
     if 'last_load' in st.session_state:
         if (datetime.now() - st.session_state.last_load).total_seconds() < 2: return
-            
-    # Μαθητές (Τηλέφωνο = Text, Τιμή = Currency)
+    
     df_s_raw = load_data_from_sheet("students", username)
     if df_s_raw.empty:
         st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
     else:
-        df_s_raw['Τηλέφωνο'] = df_s_raw['Τηλέφωνο'].astype(str)
+        df_s_raw['Τηλέφωνο'] = df_s_raw['Τηλέφωνο'].astype(str).replace('#ERROR!', '')
         df_s_raw['Τιμή'] = df_s_raw['Τιμή'].apply(clean_currency)
         st.session_state.df_s = df_s_raw
     
-    # Μαθήματα (Ποσό = Currency)
     df_l_raw = load_data_from_sheet("lessons", username)
     if df_l_raw.empty:
         st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
@@ -153,7 +146,6 @@ def load_data(username):
         df_l_raw['Ποσό'] = df_l_raw['Ποσό'].apply(clean_currency)
         st.session_state.df_l = df_l_raw
 
-    # Σημειώσεις
     notes = load_data_from_sheet("notes", username)
     if notes.empty:
         st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
@@ -269,13 +261,14 @@ def show_finance_section():
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
-                c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
+                c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 3])
                 try:
                     t1 = datetime.strptime(r['Ώρα'], '%H:%M')
                     t2 = datetime.strptime(r['Λήξη'], '%H:%M')
                     current_hours = (t2 - t1).seconds / 3600
                 except: current_hours = 1.0
                 c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
+                
                 if st.session_state.get(f"edit_{i}"):
                     new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
@@ -290,13 +283,19 @@ def show_finance_section():
                 else:
                     c2.write(f"**{r['Ποσό']:.2f} €**")
                     if c2.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
+                
                 pay_val = c3.number_input("Είσπραξη", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}", format="%.2f")
-                if c4.button("✔️", key=f"ok_{i}"):
+                
+                btn_col1, btn_col2 = c4.columns(2)
+                if btn_col1.button("✔️", key=f"ok_{i}"):
                     diff = round(float(pay_val) - float(r['Ποσό']), 2)
                     st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
                     if diff != 0:
                         adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], "00:00", "00:00", -diff, "Ολοκληρώθηκε", "Όχι", f"adj_{datetime.now().timestamp()}"]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, adj], ignore_index=True)
+                    save_all(); st.rerun()
+                if btn_col2.button("✖️", key=f"no_{i}", help="Δεν πραγματοποιήθηκε"):
+                    st.session_state.df_l = st.session_state.df_l.drop(i).reset_index(drop=True)
                     save_all(); st.rerun()
 
     with tab_r:
@@ -372,7 +371,22 @@ def show_student_management():
                     st.write(nr['Σημειώσεις'])
                     if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
                     if st.button("🗑️", key=f"dn_{idx}"): st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True); save_all(); st.rerun()
-        with t3: st.dataframe(st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].iloc[::-1], use_container_width=True)
+        with t3:
+            # ΜΟΝΟ ΕΞΟΦΛΗΜΕΝΑ ΣΤΟ ΙΣΤΟΡΙΚΟ
+            hist = st.session_state.df_l[
+                (st.session_state.df_l['Μαθητής'] == sel) & 
+                (st.session_state.df_l['Πληρώθηκε'] == "Ναι")
+            ].copy()
+            if hist.empty:
+                st.info("Δεν υπάρχουν εξοφλημένα μαθήματα.")
+            else:
+                hist = hist.iloc[::-1]
+                for idx, hr in hist.iterrows():
+                    hc1, hc2, hc3 = st.columns([6, 2, 1])
+                    hc1.write(f"📅 {hr['Ημερομηνία']} | {hr['Ώρα']} | {hr['Ποσό']:.2f} €")
+                    if hc3.button("🗑️", key=f"del_hist_{idx}"):
+                        st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
+                        save_all(); st.rerun()
 
 def show_settings():
     st.header("⚙️ Ρυθμίσεις")
