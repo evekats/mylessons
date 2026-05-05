@@ -261,17 +261,18 @@ def show_finance_section():
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
-                # --- ΑΛΛΑΓΗ 1: ΔΙΟΡΘΩΣΗ ΣΤΙΣ ΣΤΗΛΕΣ ΓΙΑ ΤΟ ΜΟΛΥΒΑΚΙ ΚΑΙ ΤΑ OK/X ---
-                c1, c2, c3, c4 = st.columns([3, 2, 1.5, 2.5])
+                # --- UI FIX: Πιο στενές στήλες για να μην σπάνε στα κινητά ---
+                c1, c2, c3, c4 = st.columns([3, 1.5, 1.2, 1.5])
                 try:
                     t1 = datetime.strptime(r['Ώρα'], '%H:%M')
                     t2 = datetime.strptime(r['Λήξη'], '%H:%M')
                     current_hours = (t2 - t1).seconds / 3600
                 except: current_hours = 1.0
+                
                 c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
                 
                 if st.session_state.get(f"edit_{i}"):
-                    new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}")
+                    new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}", label_visibility="collapsed")
                     if c2.button("💾", key=f"sv_{i}"):
                         s_price_row = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
                         s_price = float(s_price_row['Τιμή'].values[0]) if not s_price_row.empty else 0.0
@@ -282,23 +283,23 @@ def show_finance_section():
                         st.session_state[f"edit_{i}"] = False
                         save_all(); st.rerun()
                 else:
-                    # Εδώ το μολυβάκι μπαίνει δίπλα στο ποσό
-                    cc1, cc2 = c2.columns([2, 1])
-                    cc1.write(f"**{r['Ποσό']:.2f} €**")
-                    if cc2.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
+                    # Εσωτερικά columns για να είναι το μολυβάκι δίπλα στο ποσό
+                    col_price, col_edit = c2.columns([2, 1])
+                    col_price.write(f"**{r['Ποσό']:.1f}€**")
+                    if col_edit.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
                 
-                pay_val = c3.number_input("Είσπρ.", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}", format="%.2f", label_visibility="collapsed")
+                pay_val = c3.number_input("€", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}", format="%.2f", label_visibility="collapsed")
                 
-                # Εδώ το τικ και το Χ μπαίνουν στην ίδια σειρά
-                btn_col1, btn_col2 = c4.columns(2)
-                if btn_col1.button("✔️", key=f"ok_{i}"):
+                # Τικ και Χ δίπλα-δίπλα
+                b1, b2 = c4.columns(2)
+                if b1.button("✔️", key=f"ok_{i}"):
                     diff = round(float(pay_val) - float(r['Ποσό']), 2)
                     st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
                     if diff != 0:
                         adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], "00:00", "00:00", -diff, "Ολοκληρώθηκε", "Όχι", f"adj_{datetime.now().timestamp()}"]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, adj], ignore_index=True)
                     save_all(); st.rerun()
-                if btn_col2.button("✖️", key=f"no_{i}", help="Δεν πραγματοποιήθηκε"):
+                if b2.button("✖️", key=f"no_{i}", help="Δεν πραγματοποιήθηκε"):
                     st.session_state.df_l = st.session_state.df_l.drop(i).reset_index(drop=True)
                     save_all(); st.rerun()
 
@@ -396,8 +397,8 @@ def show_student_management():
                 hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
                 
                 for idx, hr in hist.iterrows():
-                    # --- ΑΛΛΑΓΗ 2: ΤΟ ΚΑΔΑΚΙ ΣΤΗΝ ΙΔΙΑ ΣΕΙΡΑ ΜΕ ΤΟ ΙΣΤΟΡΙΚΟ ---
-                    hc1, hc2 = st.columns([8, 1])
+                    # --- UI FIX: Το καδάκι διαγραφής τέρμα δεξιά στην ίδια γραμμή ---
+                    hc1, hc2 = st.columns([9, 1])
                     icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
                     hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
                     if hc2.button("🗑️", key=f"del_hist_{idx}"):
