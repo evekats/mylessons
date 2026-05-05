@@ -147,26 +147,40 @@ def load_data(username):
         if (datetime.now() - st.session_state.last_load).total_seconds() < 2:
             return
             
-    st.session_state.df_s = load_data_from_sheet("students", username)
-    if st.session_state.df_s.empty: 
+    # Φόρτωση μαθητών
+    df_s_raw = load_data_from_sheet("students", username)
+    
+    if df_s_raw.empty: 
+        # Αν το φύλλο είναι άδειο, φτιάχνουμε ένα DataFrame με τις σωστές στήλες
         st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
     else:
-        # Διασφάλιση ότι η Τιμή είναι αριθμός
-        st.session_state.df_s['Τιμή'] = pd.to_numeric(st.session_state.df_s['Τιμή'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
+        st.session_state.df_s = df_s_raw
+        # ΕΛΕΓΧΟΣ: Αν για κάποιο λόγο λείπει η στήλη 'Τιμή', τη δημιουργούμε με μηδενικά
+        if 'Τιμή' not in st.session_state.df_s.columns:
+            st.session_state.df_s['Τιμή'] = 0.0
+        
+        # Μετατροπή σε αριθμό (εδώ γινόταν το σφάλμα)
+        st.session_state.df_s['Τιμή'] = pd.to_numeric(
+            st.session_state.df_s['Τιμή'].astype(str).str.replace(',', '.'), 
+            errors='coerce'
+        ).fillna(0.0)
     
+    # Φόρτωση μαθημάτων
     df_l_raw = load_data_from_sheet("lessons", username)
     if df_l_raw.empty:
         st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
     else:
+        if 'Ποσό' not in df_l_raw.columns: df_l_raw['Ποσό'] = 0.0
         df_l_raw['Ποσό'] = pd.to_numeric(df_l_raw['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0).astype(float)
         st.session_state.df_l = df_l_raw
 
+    # Φόρτωση σημειώσεων
     notes = load_data_from_sheet("notes", username)
     if notes.empty:
         st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
     else:
-        today_str = datetime.now(ZoneInfo('Europe/Athens')).strftime('%Y-%m-%d')
         st.session_state.df_n = notes
+        today_str = datetime.now(ZoneInfo('Europe/Athens')).strftime('%Y-%m-%d')
         if 'Διαγωνίσματα' in st.session_state.df_n.columns:
             st.session_state.df_n['Διαγωνίσματα'] = st.session_state.df_n['Διαγωνίσματα'].apply(lambda x: x if str(x) >= today_str else "")
 
