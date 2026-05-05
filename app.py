@@ -297,12 +297,17 @@ def show_finance_section():
                 if st.session_state.get(f"edit_{i}"):
                     new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
-                        s_price_row = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
-                        s_price = float(s_price_row['Τιμή'].values[0]) if not s_price_row.empty else 0.0
-                        
-                        new_finish = (t1 + timedelta(hours=new_h)).strftime('%H:%M')
-                        st.session_state.df_l.at[i, 'Λήξη'] = new_finish
-                        st.session_state.df_l.at[i, 'Ποσό'] = float(round(new_h * s_price, 2))
+    s_price_row = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
+    
+    # Πιο ασφαλής ανάκτηση της τιμής
+    if not s_price_row.empty:
+        raw_val = s_price_row['Τιμή'].values[0]
+        # Μετατροπή σε numeric, αν αποτύχει δίνει 0.0 αντί για ValueError
+        s_price = float(pd.to_numeric(str(raw_val).replace(',', '.'), errors='coerce') or 0.0)
+    else:
+        s_price = 0.0
+    
+    new_finish = (t1 + timedelta(hours=new_h)).strftime('%H:%M')
                         
                         # Κλείδωμα UID για αποφυγή overwrite από iCloud
                         current_uid = str(st.session_state.df_l.at[i, 'UID'])
