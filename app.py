@@ -143,32 +143,31 @@ def save_data_to_sheet(df, tab_name, username):
     except: pass
 
 def load_data(username):
-    # Έλεγχος για να μην φορτώνει συνέχεια αν δεν χρειάζεται
+    # Αποφυγή συνεχόμενων φορτώσεων
     if 'last_load' in st.session_state:
         if (datetime.now() - st.session_state.last_load).total_seconds() < 2:
             return
             
-    # Φόρτωση Μαθητών
+    # 1. Φόρτωση Μαθητών
     st.session_state.df_s = load_data_from_sheet("students", username)
     if st.session_state.df_s.empty: 
         st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
     
-    # Φόρτωση Μαθημάτων
+    # 2. Φόρτωση Μαθημάτων
     df_l_raw = load_data_from_sheet("lessons", username)
     if df_l_raw.empty:
         st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
     else:
-        # --- Η ΚΡΙΣΙΜΗ ΔΙΟΡΘΩΣΗ ΓΙΑ ΤΟ ERROR ΣΤΟ ΜΟΛΥΒΑΚΙ ---
-        # Μετατρέπουμε το Ποσό σε αριθμό, καθαρίζοντας τυχόν κενά ή περίεργα σύμβολα
+        # ΔΙΟΡΘΩΣΗ: Μετατροπή σε float και επιβολή τύπου για να δέχεται δεκαδικά στο edit
         df_l_raw['Ποσό'] = pd.to_numeric(df_l_raw['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
+        df_l_raw['Ποσό'] = df_l_raw['Ποσό'].astype(float) # <--- ΑΥΤΗ Η ΓΡΑΜΜΗ ΛΥΝΕΙ ΤΟ TYPEERROR
         st.session_state.df_l = df_l_raw
 
-    # Φόρτωση Σημειώσεων
+    # 3. Φόρτωση Σημειώσεων
     notes = load_data_from_sheet("notes", username)
     if notes.empty:
         st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
     else:
-        # Καθαρισμός παλιών διαγωνισμάτων
         today_str = datetime.now(ZoneInfo('Europe/Athens')).strftime('%Y-%m-%d')
         st.session_state.df_n = notes
         if 'Διαγωνίσματα' in st.session_state.df_n.columns:
