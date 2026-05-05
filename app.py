@@ -143,30 +143,38 @@ def save_data_to_sheet(df, tab_name, username):
     except: pass
 
 def load_data(username):
+    # Έλεγχος για να μην φορτώνει συνέχεια αν δεν χρειάζεται
     if 'last_load' in st.session_state:
-        if (datetime.now() - st.session_state.last_load).total_seconds() < 10:
+        if (datetime.now() - st.session_state.last_load).total_seconds() < 2:
             return
+            
+    # Φόρτωση Μαθητών
     st.session_state.df_s = load_data_from_sheet("students", username)
-    if st.session_state.df_s.empty: st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
-    st.session_state.df_l = load_data_from_sheet("lessons", username)
-    if st.session_state.df_l.empty: st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
+    if st.session_state.df_s.empty: 
+        st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
     
+    # Φόρτωση Μαθημάτων
+    df_l_raw = load_data_from_sheet("lessons", username)
+    if df_l_raw.empty:
+        st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
+    else:
+        # --- Η ΚΡΙΣΙΜΗ ΔΙΟΡΘΩΣΗ ΓΙΑ ΤΟ ERROR ΣΤΟ ΜΟΛΥΒΑΚΙ ---
+        # Μετατρέπουμε το Ποσό σε αριθμό, καθαρίζοντας τυχόν κενά ή περίεργα σύμβολα
+        df_l_raw['Ποσό'] = pd.to_numeric(df_l_raw['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
+        st.session_state.df_l = df_l_raw
+
+    # Φόρτωση Σημειώσεων
     notes = load_data_from_sheet("notes", username)
     if notes.empty:
         st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
     else:
+        # Καθαρισμός παλιών διαγωνισμάτων
         today_str = datetime.now(ZoneInfo('Europe/Athens')).strftime('%Y-%m-%d')
-        def clear_old_exams(val):
-            if not val or val == "": return ""
-            try:
-                if str(val) < today_str: return ""
-                return val
-            except: return val
-        notes['Διαγωνίσματα'] = notes['Διαγωνίσματα'].apply(clear_old_exams)
         st.session_state.df_n = notes
-        
-    st.session_state.last_load = datetime.now()
+        if 'Διαγωνίσματα' in st.session_state.df_n.columns:
+            st.session_state.df_n['Διαγωνίσματα'] = st.session_state.df_n['Διαγωνίσματα'].apply(lambda x: x if str(x) >= today_str else "")
 
+    st.session_state.last_load = datetime.now()
 def save_all():
     user = st.session_state.user
     save_data_to_sheet(st.session_state.df_s, "students", user)
