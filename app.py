@@ -303,13 +303,22 @@ def show_finance_section():
         c_m, c_y = st.columns(2)
         month = c_m.selectbox("Μήνας", list(range(1, 13)), index=datetime.now(gr_tz).month-1)
         year = c_y.selectbox("Έτος", [2025, 2026, 2027], index=1)
+        
         df_m = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"].copy()
         if not df_m.empty:
             df_m['m'] = df_m['Ημερομηνία'].apply(lambda x: int(x.split('/')[1]) if '/' in str(x) else 0)
             df_m['y'] = df_m['Ημερομηνία'].apply(lambda x: int(x.split('/')[2]) if '/' in str(x) else 0)
             df_f = df_m[(df_m['m'] == month) & (df_m['y'] == year)]
+            
             if not df_f.empty:
-                st.metric("💶 Συνολικά Έσοδα Μήνα", f"{df_f['Ποσό'].sum():.2f} €")
+                # ΕΠΙΛΟΓΗ ΜΑΘΗΤΩΝ ΓΙΑ ΥΠΟΛΟΓΙΣΜΟ ΕΣΟΔΩΝ
+                all_students_in_month = sorted(df_f['Μαθητής'].unique().tolist())
+                selected_students = st.multiselect("Επιλογή Μαθητών για Σύνολο", all_students_in_month, default=all_students_in_month)
+                
+                calculated_revenue = df_f[df_f['Μαθητής'].isin(selected_students)]['Ποσό'].sum()
+                st.metric("💶 Συνολικά Έσοδα Μήνα (Επιλεγμένα)", f"{calculated_revenue:.2f} €")
+                
+                st.divider()
                 summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f} €"):
@@ -372,7 +381,7 @@ def show_student_management():
                     if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
                     if st.button("🗑️", key=f"dn_{idx}"): st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True); save_all(); st.rerun()
         with t3:
-            # ΜΟΝΟ ΕΞΟΦΛΗΜΕΝΑ ΣΤΟ ΙΣΤΟΡΙΚΟ
+            # ΜΟΝΟ ΕΞΟΦΛΗΜΕΝΑ ΣΤΟ ΙΣΤΟΡΙΚΟ ΜΕ ΠΛΗΡΗ ΩΡΑ
             hist = st.session_state.df_l[
                 (st.session_state.df_l['Μαθητής'] == sel) & 
                 (st.session_state.df_l['Πληρώθηκε'] == "Ναι")
@@ -383,7 +392,8 @@ def show_student_management():
                 hist = hist.iloc[::-1]
                 for idx, hr in hist.iterrows():
                     hc1, hc2, hc3 = st.columns([6, 2, 1])
-                    hc1.write(f"📅 {hr['Ημερομηνία']} | {hr['Ώρα']} | {hr['Ποσό']:.2f} €")
+                    # ΕΜΦΑΝΙΣΗ ΛΗΞΗΣ ΓΙΑ ΔΙΑΡΚΕΙΑ
+                    hc1.write(f"📅 {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
                     if hc3.button("🗑️", key=f"del_hist_{idx}"):
                         st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
                         save_all(); st.rerun()
@@ -428,6 +438,10 @@ def main():
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
         if pend.empty: st.success("Κανένα μάθημα.")
         else:
+            # ΤΑΞΙΝΟΜΗΣΗ ΑΠΟ ΚΟΝΤΙΝΟ ΣΕ ΜΑΚΡΙΝΟ
+            pend['temp_sort_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
+            pend = pend.sort_values('temp_sort_dt', ascending=True).drop(columns=['temp_sort_dt'])
+            
             for i, r in pend.iterrows():
                 c1, c2, c3 = st.columns([3, 4, 2])
                 c1.write(f"**{r['Μαθητής']}**")
