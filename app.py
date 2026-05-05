@@ -381,19 +381,23 @@ def show_student_management():
                     if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
                     if st.button("🗑️", key=f"dn_{idx}"): st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True); save_all(); st.rerun()
         with t3:
-            # ΜΟΝΟ ΕΞΟΦΛΗΜΕΝΑ ΣΤΟ ΙΣΤΟΡΙΚΟ ΜΕ ΠΛΗΡΗ ΩΡΑ
+            # ΠΛΗΡΕΣ ΙΣΤΟΡΙΚΟ: ΟΛΑ ΤΑ ΟΛΟΚΛΗΡΩΜΕΝΑ (ΕΞΟΦΛΗΜΕΝΑ & ΑΝΕΞΟΦΛΗΤΑ)
             hist = st.session_state.df_l[
                 (st.session_state.df_l['Μαθητής'] == sel) & 
-                (st.session_state.df_l['Πληρώθηκε'] == "Ναι")
+                (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε")
             ].copy()
+            
             if hist.empty:
-                st.info("Δεν υπάρχουν εξοφλημένα μαθήματα.")
+                st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα.")
             else:
-                hist = hist.iloc[::-1]
+                # Ταξινόμηση ώστε τα πιο πρόσφατα να είναι πάνω
+                hist['temp_dt'] = pd.to_datetime(hist['Ημερομηνία'], format="%d/%m/%Y", errors='coerce')
+                hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
+                
                 for idx, hr in hist.iterrows():
                     hc1, hc2, hc3 = st.columns([6, 2, 1])
-                    # ΕΜΦΑΝΙΣΗ ΛΗΞΗΣ ΓΙΑ ΔΙΑΡΚΕΙΑ
-                    hc1.write(f"📅 {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
+                    icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
+                    hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
                     if hc3.button("🗑️", key=f"del_hist_{idx}"):
                         st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
                         save_all(); st.rerun()
