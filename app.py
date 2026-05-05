@@ -296,12 +296,9 @@ def show_finance_section():
                 # --- ΔΙΟΡΘΩΣΗ 2: ΜΟΛΥΒΑΚΙ ΜΕ LOCKED UID ---
                 if st.session_state.get(f"edit_{i}"):
                     new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}")
-                    if st.session_state.get(f"edit_{i}"):
-                    new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
                         s_price_row = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
                         
-                        # Πιο ανθεκτικός υπολογισμός τιμής
                         if not s_price_row.empty:
                             raw_val = s_price_row['Τιμή'].values[0]
                             s_price = float(pd.to_numeric(str(raw_val).replace(',', '.'), errors='coerce') or 0.0)
@@ -312,13 +309,17 @@ def show_finance_section():
                         st.session_state.df_l.at[i, 'Λήξη'] = new_finish
                         st.session_state.df_l.at[i, 'Ποσό'] = float(round(new_h * s_price, 2))
                         
-                        # Κλείδωμα UID για αποφυγή overwrite από iCloud
                         current_uid = str(st.session_state.df_l.at[i, 'UID'])
                         if not current_uid.startswith('locked_'):
                             st.session_state.df_l.at[i, 'UID'] = f"locked_{current_uid}"
                         
                         st.session_state[f"edit_{i}"] = False
                         save_all()
+                        st.rerun()
+                else:
+                    c2.write(f"**{r['Ποσό']:.2f}€**")
+                    if c2.button("✏️", key=f"ed_{i}"):
+                        st.session_state[f"edit_{i}"] = True
                         st.rerun()
                 else:
                     c2.write(f"**{r['Ποσό']:.2f}€**")
