@@ -59,7 +59,7 @@ def save_excel_tab(df, tab_name):
 # --- Φάκελος για Uploads ---
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- ΣΥΝΑΡΤΗΣΕΙΣ ΑΣΦΑΛΕΙΑΣ & ΔΙΑΧΕΙΡΙΣΗΣ ΧΡΗΣΤΩΝ ---
 def hash_pw(pw):
