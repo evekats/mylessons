@@ -132,38 +132,31 @@ def save_data_to_sheet(df, tab_name, username):
         mine = df.copy()
         mine.insert(0, 'owner', username)
         
-        # ΕΔΩ ΓΙΝΕΤΑΙ Η ΔΙΟΡΘΩΣΗ: Μετατροπή σε float πριν το save
         if 'Ποσό' in mine.columns:
             mine['Ποσό'] = pd.to_numeric(mine['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             
         final_df = pd.concat([others, mine], ignore_index=True).fillna("")
         ws.clear()
-        # Χρήση USER_ENTERED για να αναγνωρίσει το Sheets τους δεκαδικούς αριθμούς
         ws.update([final_df.columns.values.tolist()] + final_df.values.tolist(), value_input_option='USER_ENTERED')
     except: pass
 
 def load_data(username):
-    # Αποφυγή συνεχόμενων φορτώσεων
     if 'last_load' in st.session_state:
         if (datetime.now() - st.session_state.last_load).total_seconds() < 2:
             return
             
-    # 1. Φόρτωση Μαθητών
     st.session_state.df_s = load_data_from_sheet("students", username)
     if st.session_state.df_s.empty: 
         st.session_state.df_s = pd.DataFrame(columns=["Όνομα", "Τηλέφωνο", "Τιμή"])
     
-    # 2. Φόρτωση Μαθημάτων
+    # --- ΔΙΟΡΘΩΣΗ 1: ΜΟΝΙΜΑ ΔΕΚΑΔΙΚΑ ---
     df_l_raw = load_data_from_sheet("lessons", username)
     if df_l_raw.empty:
         st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
     else:
-        # ΔΙΟΡΘΩΣΗ: Μετατροπή σε float και επιβολή τύπου για να δέχεται δεκαδικά στο edit
-        df_l_raw['Ποσό'] = pd.to_numeric(df_l_raw['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
-        df_l_raw['Ποσό'] = df_l_raw['Ποσό'].astype(float) # <--- ΑΥΤΗ Η ΓΡΑΜΜΗ ΛΥΝΕΙ ΤΟ TYPEERROR
+        df_l_raw['Ποσό'] = pd.to_numeric(df_l_raw['Ποσό'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0).astype(float)
         st.session_state.df_l = df_l_raw
 
-    # 3. Φόρτωση Σημειώσεων
     notes = load_data_from_sheet("notes", username)
     if notes.empty:
         st.session_state.df_n = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Σημειώσεις", "Αρχείο", "Διαγωνίσματα"])
@@ -174,6 +167,7 @@ def load_data(username):
             st.session_state.df_n['Διαγωνίσματα'] = st.session_state.df_n['Διαγωνίσματα'].apply(lambda x: x if str(x) >= today_str else "")
 
     st.session_state.last_load = datetime.now()
+
 def save_all():
     user = st.session_state.user
     save_data_to_sheet(st.session_state.df_s, "students", user)
@@ -191,6 +185,7 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
+        # Αγνοούμε τα "locked_" UIDs κατά τον συγχρονισμό
         st.session_state.df_l = st.session_state.df_l[
             (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
             (st.session_state.df_l['UID'].astype(str).str.startswith('manual_'))
@@ -200,6 +195,12 @@ def auto_sync():
         new_lessons = []
         for comp in gcal.walk('VEVENT'):
             summary, uid = str(comp.get('summary', '')), str(comp.get('uid', ''))
+            
+            # Έλεγχος αν το μάθημα είναι κλειδωμένο από τον χρήστη
+            if not st.session_state.df_l.empty:
+                if not st.session_state.df_l[st.session_state.df_l['UID'] == f"locked_{uid}"].empty:
+                    continue
+
             if not summary.strip().lower().startswith("μάθημα"): continue
             start = comp.get('dtstart').dt
             if not isinstance(start, datetime): continue
@@ -271,8 +272,7 @@ def show_finance_section():
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
                         save_all(); st.rerun()
         st.divider()
-        st.session_state.df_l = st.session_state.df_l.reset_index(drop=True)
-# ΤΑΞΙΝΟΜΗΣΗ: ΝΕΑ ΠΡΟΣ ΠΑΛΙΑ
+        
         unpaid = st.session_state.df_l[(st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")].copy()
         
         if unpaid.empty: 
@@ -282,61 +282,51 @@ def show_finance_section():
             unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             
             for i, r in unpaid.iterrows():
-                # Σωστό Indentation (4 κενά μέσα από το for)
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 2.5])
                 
-                # 1. Υπολογισμός τρέχουσας διάρκειας από τις ώρες
                 try:
                     t1 = datetime.strptime(r['Ώρα'], '%H:%M')
                     t2 = datetime.strptime(r['Λήξη'], '%H:%M')
                     current_hours = (t2 - t1).seconds / 3600
                 except:
-                    current_hours = 1.0 # Default αν υπάρχει πρόβλημα στο format
+                    current_hours = 1.0
                 
                 c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
                 
-                # 2. Το "Μολυβάκι" αλλάζει τις ΩΡΕΣ
+                # --- ΔΙΟΡΘΩΣΗ 2: ΜΟΛΥΒΑΚΙ ΜΕ LOCKED UID ---
                 if st.session_state.get(f"edit_{i}"):
                     new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}")
                     if c2.button("💾", key=f"sv_{i}"):
-                        # Βρίσκουμε την τιμή ανά ώρα του συγκεκριμένου μαθητή
                         s_price_row = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
                         s_price = float(s_price_row['Τιμή'].values[0]) if not s_price_row.empty else 0.0
                         
-                        # Υπολογισμός νέας λήξης και νέου ποσού
                         new_finish = (t1 + timedelta(hours=new_h)).strftime('%H:%M')
                         st.session_state.df_l.at[i, 'Λήξη'] = new_finish
-                        st.session_state.df_l.at[i, 'Ποσό'] = round(float(new_h * s_price), 2)
+                        st.session_state.df_l.at[i, 'Ποσό'] = float(round(new_h * s_price, 2))
                         
-                        # Κλείδωμα για να μην το αλλάξει το iCloud Sync
-                        if not str(st.session_state.df_l.at[i, 'UID']).startswith('locked_'):
-                            st.session_state.df_l.at[i, 'UID'] = f"locked_{st.session_state.df_l.at[i, 'UID']}"
+                        # Κλείδωμα UID για αποφυγή overwrite από iCloud
+                        current_uid = str(st.session_state.df_l.at[i, 'UID'])
+                        if not current_uid.startswith('locked_'):
+                            st.session_state.df_l.at[i, 'UID'] = f"locked_{current_uid}"
                         
                         st.session_state[f"edit_{i}"] = False
-                        save_all()
-                        st.rerun()
+                        save_all(); st.rerun()
                 else:
                     c2.write(f"**{r['Ποσό']:.2f}€**")
                     if c2.button("✏️", key=f"ed_{i}"):
-                        st.session_state[f"edit_{i}"] = True
-                        st.rerun()
+                        st.session_state[f"edit_{i}"] = True; st.rerun()
                 
-                # 3. Είσπραξη και δημιουργία πλεονάσματος
                 pay_val = c3.number_input("Είσπραξη", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}")
                 
                 if c4.button("✔️", key=f"ok_{i}"):
                     diff = round(float(pay_val) - float(r['Ποσό']), 2)
                     st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
-                    
-                    # Αν έδωσε περισσότερα (π.χ. 50 αντί για 40), φτιάξε αρνητική εγγραφή (-10)
                     if diff != 0:
                         new_uid = f"adj_{datetime.now().timestamp()}"
                         adj_entry = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], "00:00", "00:00", -diff, "Ολοκληρώθηκε", "Όχι", new_uid]], 
                                                  columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, adj_entry], ignore_index=True)
-                    
-                    save_all()
-                    st.rerun()
+                    save_all(); st.rerun()
 
     with tab_r:
         gr_tz = ZoneInfo('Europe/Athens')
@@ -385,8 +375,7 @@ def show_student_management():
             c1, c2, c3, c4, c5 = st.columns([2.5, 2, 1.5, 0.5, 0.5])
             if c1.button(f"👤 {r['Όνομα']}", key=f"btn_{i}"):
                 st.session_state.selected_student = r['Όνομα']
-                st.session_state.view_mode = 'card'
-                st.rerun()
+                st.session_state.view_mode = 'card'; st.rerun()
             
             if st.session_state.get(f"edit_student_{i}"):
                 with st.form(f"edit_s_form_{i}"):
@@ -403,8 +392,7 @@ def show_student_management():
                 c2.write(r['Τηλέφωνο'])
                 c3.write(f"{r['Τιμή']}€/ώρα")
                 if c4.button("✏️", key=f"ed_s_{i}"):
-                    st.session_state[f"edit_student_{i}"] = True
-                    st.rerun()
+                    st.session_state[f"edit_student_{i}"] = True; st.rerun()
                 if c5.button("🗑️", key=f"del_{i}"):
                     st.session_state.df_s = st.session_state.df_s.drop(i).reset_index(drop=True)
                     save_all(); st.rerun()
@@ -422,7 +410,6 @@ def show_student_management():
             balance = unpaid_df['Ποσό'].sum()
             st.metric("Ανεξόφλητο Υπόλοιπο", f"{balance:.2f} €")
             if not unpaid_df.empty:
-                st.write("Εκκρεμή μαθήματα:")
                 for _, ur in unpaid_df.iterrows():
                     st.write(f"• {ur['Ημερομηνία']} ({ur['Ώρα']}-{ur['Λήξη']}): **{ur['Ποσό']:.2f}€**")
             
@@ -433,15 +420,13 @@ def show_student_management():
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις")
                 ex_date = st.date_input("Ημερομηνία Διαγωνίσματος", value=None, format="DD/MM/YYYY")
-                uploaded_file = st.file_uploader("Σύρετε ή επιλέξτε αρχείο για ανέβασμα", type=["pdf", "png", "jpg", "docx"])
-                manual_link = st.text_input("Ή επικολλήστε Link Αρχείου (Drive/Dropbox)")
-                
+                uploaded_file = st.file_uploader("Αρχείο", type=["pdf", "png", "jpg", "docx"])
+                manual_link = st.text_input("Ή Link Αρχείου")
                 if st.form_submit_button("Αποθήκευση"):
                     final_link = manual_link
                     if uploaded_file is not None:
                         file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
-                        with open(file_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
+                        with open(file_path, "wb") as f: f.write(uploaded_file.getbuffer())
                         final_link = file_path
                     d = datetime.now(ZoneInfo('Europe/Athens')).strftime('%d/%m/%Y')
                     ex_val = ex_date.strftime('%Y-%m-%d') if ex_date else ""
@@ -459,14 +444,8 @@ def show_student_management():
                             if nr['Αρχείο'].startswith("uploads"):
                                  with open(nr['Αρχείο'], "rb") as f:
                                      st.download_button("📂 Λήψη", f, file_name=os.path.basename(nr['Αρχείο']), key=f"dl_{idx}")
-                            else:
-                                st.link_button("🔗 Link", nr['Αρχείο'])
-                        if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
-                            try:
-                                d_obj = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d')
-                                st.error(f"🚩 Διαγώνισμα: {d_obj.strftime('%d/%m/%Y')}")
-                            except:
-                                st.error(f"🚩 {nr['Διαγωνίσματα']}")
+                            else: st.link_button("🔗 Link", nr['Αρχείο'])
+                        if nr['Διαγωνίσματα'] != "": st.error(f"🚩 Διαγώνισμα: {nr['Διαγωνίσματα']}")
                 if col_n2.button("🗑️", key=f"del_note_{idx}"):
                     st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
                     save_all(); st.rerun()
@@ -513,12 +492,10 @@ def main():
     
     if menu != st.session_state.menu_option:
         st.session_state.menu_option = menu
-        auto_collapse_sidebar()
-        st.rerun()
+        auto_collapse_sidebar(); st.rerun()
 
     if st.sidebar.button("🚪 Log out"): 
-        st.session_state.clear(); 
-        st.rerun()
+        st.session_state.clear(); st.rerun()
 
     if menu == "📊 Dashboard": show_dashboard()
     elif menu == "📅 Πρόγραμμα":
