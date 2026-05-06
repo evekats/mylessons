@@ -261,7 +261,6 @@ def show_finance_section():
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
-                # --- UI FIX: Πιο στενές στήλες για να μην σπάνε στα κινητά ---
                 c1, c2, c3, c4 = st.columns([3, 1.5, 1.2, 1.5])
                 try:
                     t1 = datetime.strptime(r['Ώρα'], '%H:%M')
@@ -283,14 +282,12 @@ def show_finance_section():
                         st.session_state[f"edit_{i}"] = False
                         save_all(); st.rerun()
                 else:
-                    # Εσωτερικά columns για να είναι το μολυβάκι δίπλα στο ποσό
                     col_price, col_edit = c2.columns([2, 1])
                     col_price.write(f"**{r['Ποσό']:.1f}€**")
                     if col_edit.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
                 
                 pay_val = c3.number_input("€", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}", format="%.2f", label_visibility="collapsed")
                 
-                # Τικ και Χ δίπλα-δίπλα
                 b1, b2 = c4.columns(2)
                 if b1.button("✔️", key=f"ok_{i}"):
                     diff = round(float(pay_val) - float(r['Ποσό']), 2)
@@ -358,32 +355,63 @@ def show_student_management():
                 c3.write(f"{r['Τιμή']:.2f} €/ώρα")
                 if c4.button("✏️", key=f"ed_s_{i}"): st.session_state[f"edit_student_{i}"] = True; st.rerun()
                 if c5.button("🗑️", key=f"del_{i}"): st.session_state.df_s = st.session_state.df_s.drop(i).reset_index(drop=True); save_all(); st.rerun()
+    
     elif st.session_state.view_mode == 'card':
         sel = st.session_state.selected_student
         st.header(f"📂 Καρτέλα: {sel}")
         if st.button("⬅️ Πίσω"): st.session_state.view_mode = 'list'; st.rerun()
         t1, t2, t3 = st.tabs(["💰 Οικονομικά", "📝 Σημειώσεις", "📜 Ιστορικό"])
+        
         with t1:
             unpaid_df = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")]
             st.metric("Ανεξόφλητο Υπόλοιπο", f"{unpaid_df['Ποσό'].sum():.2f} €")
             if st.button("Εξόφληση Όλων"):
                 st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"), 'Πληρώθηκε'] = "Ναι"
                 save_all(); st.rerun()
+        
         with t2:
             with st.form("note_page", clear_on_submit=True):
-                nt, ex_date, uploaded_file, manual_link = st.text_area("Σημειώσεις"), st.date_input("Διαγώνισμα", value=None), st.file_uploader("Αρχείο"), st.text_input("Link")
-                if st.form_submit_button("Αποθήκευση"):
+                nt = st.text_area("Σημειώσεις Μαθήματος")
+                ex_date = st.date_input("Προγραμματισμός Διαγωνίσματος", value=None, format="DD/MM/YYYY")
+                uploaded_file = st.file_uploader("Αρχείο/Φωτογραφία")
+                manual_link = st.text_input("Link (π.χ. Google Drive)")
+                if st.form_submit_button("Αποθήκευση Σημείωσης"):
                     f_link = manual_link
                     if uploaded_file:
                         f_link = os.path.join(UPLOAD_DIR, uploaded_file.name)
                         with open(f_link, "wb") as f: f.write(uploaded_file.getbuffer())
                     new_n = pd.DataFrame([[sel, datetime.now().strftime('%d/%m/%Y'), nt, f_link, ex_date.strftime('%Y-%m-%d') if ex_date else ""]], columns=st.session_state.df_n.columns)
                     st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True); save_all(); st.rerun()
-            for idx, nr in st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1].iterrows():
-                with st.expander(f"📅 {nr['Ημερομηνία']}"):
-                    st.write(nr['Σημειώσεις'])
-                    if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
-                    if st.button("🗑️", key=f"dn_{idx}"): st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True); save_all(); st.rerun()
+            
+            st.subheader("Ιστορικό Σημειώσεων")
+            student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
+            
+            if student_notes.empty:
+                st.info("Δεν υπάρχουν καταγεγραμμένες σημειώσεις.")
+            else:
+                for idx, nr in student_notes.iterrows():
+                    with st.container(border=True):
+                        c1, c2 = st.columns([0.85, 0.15])
+                        c1.markdown(f"**📅 Ημερομηνία:** {nr['Ημερομηνία']}")
+                        
+                        if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
+                            try:
+                                formatted_exam = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d').strftime('%d/%m/%Y')
+                                c1.error(f"🚨 Διαγώνισμα: {formatted_exam}")
+                            except: pass
+                        
+                        if nr['Σημειώσεις']:
+                            st.write(nr['Σημειώσεις'])
+                        else:
+                            st.caption("Χωρίς κείμενο σημείωσης")
+                        
+                        if nr['Αρχείο']: 
+                            st.link_button("📂 Άνοιγμα Αρχείου", nr['Αρχείο'])
+                        
+                        if c2.button("🗑️", key=f"dn_{idx}"):
+                            st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
+                            save_all(); st.rerun()
+
         with t3:
             hist = st.session_state.df_l[
                 (st.session_state.df_l['Μαθητής'] == sel) & 
@@ -397,7 +425,6 @@ def show_student_management():
                 hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
                 
                 for idx, hr in hist.iterrows():
-                    # --- UI FIX: Το καδάκι διαγραφής τέρμα δεξιά στην ίδια γραμμή ---
                     hc1, hc2 = st.columns([9, 1])
                     icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
                     hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
