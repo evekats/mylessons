@@ -374,8 +374,8 @@ def show_student_management():
                 nt = st.text_area("Σημειώσεις Μαθήματος")
                 ex_date = st.date_input("Προγραμματισμός Διαγωνίσματος", value=None, format="DD/MM/YYYY")
                 uploaded_file = st.file_uploader("Αρχείο/Φωτογραφία")
-                manual_link = st.text_input("Link (π.χ. Google Drive)")
-                if st.form_submit_button("Αποθήκευση Σημείωσης"):
+                manual_link = st.text_input("Link")
+                if st.form_submit_button("Αποθήκευση"):
                     f_link = manual_link
                     if uploaded_file:
                         f_link = os.path.join(UPLOAD_DIR, uploaded_file.name)
@@ -385,29 +385,20 @@ def show_student_management():
             
             st.subheader("Ιστορικό Σημειώσεων")
             student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
-            
             if student_notes.empty:
-                st.info("Δεν υπάρχουν καταγεγραμμένες σημειώσεις.")
+                st.info("Δεν υπάρχουν σημειώσεις.")
             else:
                 for idx, nr in student_notes.iterrows():
                     with st.container(border=True):
                         c1, c2 = st.columns([0.85, 0.15])
-                        c1.markdown(f"**📅 Ημερομηνία:** {nr['Ημερομηνία']}")
-                        
+                        c1.markdown(f"**📅 {nr['Ημερομηνία']}**")
                         if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
                             try:
                                 formatted_exam = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d').strftime('%d/%m/%Y')
                                 c1.error(f"🚨 Διαγώνισμα: {formatted_exam}")
                             except: pass
-                        
-                        if nr['Σημειώσεις']:
-                            st.write(nr['Σημειώσεις'])
-                        else:
-                            st.caption("Χωρίς κείμενο σημείωσης")
-                        
-                        if nr['Αρχείο']: 
-                            st.link_button("📂 Άνοιγμα Αρχείου", nr['Αρχείο'])
-                        
+                        st.write(nr['Σημειώσεις'])
+                        if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
                         if c2.button("🗑️", key=f"dn_{idx}"):
                             st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
                             save_all(); st.rerun()
@@ -417,13 +408,11 @@ def show_student_management():
                 (st.session_state.df_l['Μαθητής'] == sel) & 
                 (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε")
             ].copy()
-            
             if hist.empty:
                 st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα.")
             else:
                 hist['temp_dt'] = pd.to_datetime(hist['Ημερομηνία'], format="%d/%m/%Y", errors='coerce')
                 hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
-                
                 for idx, hr in hist.iterrows():
                     hc1, hc2 = st.columns([9, 1])
                     icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
@@ -474,7 +463,6 @@ def main():
         else:
             pend['temp_sort_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             pend = pend.sort_values('temp_sort_dt', ascending=True).drop(columns=['temp_sort_dt'])
-            
             for i, r in pend.iterrows():
                 c1, c2, c3 = st.columns([3, 4, 2])
                 c1.write(f"**{r['Μαθητής']}**")
