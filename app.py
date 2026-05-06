@@ -467,7 +467,7 @@ def main():
             today_str = now_dt.strftime('%d/%m/%Y')
             tomorrow_str = (now_dt + timedelta(days=1)).strftime('%d/%m/%Y')
             current_hour = now_dt.hour
-            greeting = "Καλή συνέχεια!" if current_hour >= 18 else "Καλή σας ημέρα!"
+            greeting = "Καλή συνέχεια!" if current_hour >= 13 else "Καλή σας ημέρα!"
 
             pend['temp_sort_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             pend = pend.sort_values('temp_sort_dt', ascending=True).drop(columns=['temp_sort_dt'])
@@ -482,7 +482,7 @@ def main():
                     # Δυναμικό κείμενο SMS
                     if r['Ημερομηνία'] == today_str:
                         day_label = "το σημερινό μας μάθημα"
-                    elif r['Ηmeρομηνία'] == tomorrow_str:
+                    elif r['Ημερομηνία'] == tomorrow_str:
                         day_label = "το αυριανό μας μάθημα"
                     else:
                         day_label = f"το μάθημά μας στις {r['Ημερομηνία']}"
