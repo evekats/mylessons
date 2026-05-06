@@ -176,21 +176,34 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
+        # Κρατάμε τα "Κλειδωμένα" (Locked) ή "Ολοκληρωμένα" ή "Χειροκίνητα" για να μην τα σβήσουμε
+        # Σβήνουμε μόνο τα απλά "Προγραμματισμένα" που προήλθαν από iCloud για να τα ξαναφέρουμε φρέσκα
         st.session_state.df_l = st.session_state.df_l[
             (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
+            (st.session_state.df_l['UID'].astype(str).str.startswith('locked_')) |
             (st.session_state.df_l['UID'].astype(str).str.startswith('manual_'))
         ].reset_index(drop=True)
 
         start_limit, end_limit = now - timedelta(days=7), now + timedelta(days=30)
         new_lessons = []
+        
+        # Λίστα με υπάρχοντα UIDs για αποφυγή διπλότυπων (συμπεριλαμβανομένων των locked_)
+        existing_uids = st.session_state.df_l['UID'].astype(str).tolist()
+
         for comp in gcal.walk('VEVENT'):
-            summary, uid = str(comp.get('summary', '')), str(comp.get('uid', ''))
-            if not st.session_state.df_l.empty and not st.session_state.df_l[st.session_state.df_l['UID'] == f"locked_{uid}"].empty:
+            summary = str(comp.get('summary', ''))
+            uid = str(comp.get('uid', ''))
+            
+            # ΕΛΕΓΧΟΣ ΔΙΠΛΟΤΥΠΩΝ: Αν το UID υπάρχει ήδη (ως έχει ή ως locked_), το προσπερνάμε
+            if uid in existing_uids or f"locked_{uid}" in existing_uids:
                 continue
+                
             if not summary.strip().lower().startswith("μάθημα"): continue
+            
             start = comp.get('dtstart').dt
             if not isinstance(start, datetime): continue
             start = start.astimezone(gr_tz).replace(tzinfo=None)
+            
             end = comp.get('dtend').dt if comp.get('dtend') else start + timedelta(hours=1)
             if isinstance(end, datetime): end = end.astimezone(gr_tz).replace(tzinfo=None)
 
@@ -200,18 +213,19 @@ def auto_sync():
                     d_str, t_start, t_end = start.strftime('%d/%m/%Y'), start.strftime('%H:%M'), end.strftime('%H:%M')
                     price = round(float(((end - start).total_seconds() / 3600) * float(match['Τιμή'])), 2)
                     status = "Προγραμματισμένο" if now < end else "Ολοκληρώθηκε"
-                    if st.session_state.df_l[st.session_state.df_l['UID'] == uid].empty:
-                        new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, status, "Όχι", uid])
+                    
+                    new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, status, "Όχι", uid])
+        
         if new_lessons:
             new_df = pd.DataFrame(new_lessons, columns=st.session_state.df_l.columns)
             st.session_state.df_l = pd.concat([st.session_state.df_l, new_df], ignore_index=True)
         save_all()
-    except: pass
+    except Exception as e:
+        print(f"Sync error: {e}")
 
 # --- ΛΕΙΤΟΥΡΓΙΑ ΑΥΤΟΜΑΤΗΣ ΜΕΤΑΦΟΡΑΣ ΜΕΤΑ ΤΗ ΛΗΞΗ ---
 
 def check_and_move_expired_lessons():
-    """Ελέγχει αν η ώρα λήξης ενός μαθήματος έχει παρέλθει και το στέλνει στις πληρωμές."""
     gr_tz = ZoneInfo('Europe/Athens')
     now = datetime.now(gr_tz).replace(tzinfo=None)
     changed = False
@@ -220,14 +234,12 @@ def check_and_move_expired_lessons():
         for idx, row in st.session_state.df_l.iterrows():
             if row['Κατάσταση'] == "Προγραμματισμένο":
                 try:
-                    # Συνδυασμός Ημερομηνίας και Λήξης για έλεγχο
                     end_dt = datetime.strptime(f"{row['Ημερομηνία']} {row['Λήξη']}", "%d/%m/%Y %H:%M")
                     if now >= end_dt:
                         st.session_state.df_l.at[idx, 'Κατάσταση'] = "Ολοκληρώθηκε"
                         changed = True
                 except:
                     continue
-    
     if changed:
         save_all()
 
@@ -473,8 +485,6 @@ def main():
         return
 
     load_data(st.session_state.user)
-    
-    # ΑΥΤΟΜΑΤΟΣ ΕΛΕΓΧΟΣ ΛΗΞΗΣ ΜΑΘΗΜΑΤΩΝ (Κάθε φορά που φορτώνει η εφαρμογή)
     check_and_move_expired_lessons()
     
     if "menu_option" not in st.session_state: st.session_state.menu_option = "📊 Dashboard"
@@ -488,7 +498,6 @@ def main():
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
         if pend.empty: st.success("Κανένα μάθημα.")
         else:
-            # Λογική για δυναμικά SMS
             gr_tz = ZoneInfo('Europe/Athens')
             now_dt = datetime.now(gr_tz)
             today_str = now_dt.strftime('%d/%m/%Y')
@@ -502,11 +511,11 @@ def main():
             for i, r in pend.iterrows():
                 c1, c2, c3 = st.columns([3, 4, 2])
                 c1.write(f"**{r['Μαθητής']}**")
-                c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']}")
+                # ΕΔΩ ΠΡΟΣΤΕΘΗΚΕ Η ΛΗΞΗ ΓΙΑ ΝΑ ΦΑΙΝΕΤΑΙ Η ΔΙΑΡΚΕΙΑ
+                c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']}")
                 
                 s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
                 if not s_match.empty:
-                    # Δυναμικό κείμενο SMS
                     if r['Ημερομηνία'] == today_str:
                         day_label = "το σημερινό μας μάθημα"
                     elif r['Ημερομηνία'] == tomorrow_str:
