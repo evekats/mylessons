@@ -144,6 +144,8 @@ def load_data(username):
         st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
     else:
         df_l_raw['Ποσό'] = df_l_raw['Ποσό'].apply(clean_currency)
+        # Καθαρισμός διπλοτύπων κατά τη φόρτωση
+        df_l_raw = df_l_raw.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
         st.session_state.df_l = df_l_raw
 
     notes = load_data_from_sheet("notes", username)
@@ -159,6 +161,9 @@ def load_data(username):
 
 def save_all():
     user = st.session_state.user
+    # Πριν το σώσιμο, σιγουρευόμαστε ότι δεν υπάρχουν διπλά
+    if 'df_l' in st.session_state:
+        st.session_state.df_l = st.session_state.df_l.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
     save_data_to_sheet(st.session_state.df_s, "students", user)
     save_data_to_sheet(st.session_state.df_l, "lessons", user)
     save_data_to_sheet(st.session_state.df_n, "notes", user)
@@ -176,8 +181,8 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
-        # Κρατάμε τα "Κλειδωμένα" (Locked) ή "Ολοκληρωμένα" ή "Χειροκίνητα" για να μην τα σβήσουμε
-        # Σβήνουμε μόνο τα απλά "Προγραμματισμένα" που προήλθαν από iCloud για να τα ξαναφέρουμε φρέσκα
+        # 1. Φιλτράρισμα: Κρατάμε τα "Locked", "Manual" και "Ολοκληρωμένα"
+        # Διαγράφουμε προσωρινά τα απλά "Προγραμματισμένα" για να τα φέρουμε φρέσκα
         st.session_state.df_l = st.session_state.df_l[
             (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
             (st.session_state.df_l['UID'].astype(str).str.startswith('locked_')) |
@@ -187,17 +192,17 @@ def auto_sync():
         start_limit, end_limit = now - timedelta(days=7), now + timedelta(days=30)
         new_lessons = []
         
-        # Λίστα με υπάρχοντα UIDs για αποφυγή διπλότυπων (συμπεριλαμβανομένων των locked_)
+        # Λίστα με τα UID που έχουμε ήδη στη βάση (locked ή άλλα)
         existing_uids = st.session_state.df_l['UID'].astype(str).tolist()
 
         for comp in gcal.walk('VEVENT'):
             summary = str(comp.get('summary', ''))
             uid = str(comp.get('uid', ''))
             
-            # ΕΛΕΓΧΟΣ ΔΙΠΛΟΤΥΠΩΝ: Αν το UID υπάρχει ήδη (ως έχει ή ως locked_), το προσπερνάμε
+            # Έλεγχος αν το UID υπάρχει ήδη (είτε σκέτο είτε με πρόθεμα locked_)
             if uid in existing_uids or f"locked_{uid}" in existing_uids:
                 continue
-                
+
             if not summary.strip().lower().startswith("μάθημα"): continue
             
             start = comp.get('dtstart').dt
@@ -219,9 +224,12 @@ def auto_sync():
         if new_lessons:
             new_df = pd.DataFrame(new_lessons, columns=st.session_state.df_l.columns)
             st.session_state.df_l = pd.concat([st.session_state.df_l, new_df], ignore_index=True)
+        
+        # ΤΕΛΙΚΟΣ ΚΑΘΑΡΙΣΜΟΣ ΔΙΠΛΟΤΥΠΩΝ (βασισμένος σε Μαθητή/Ημερομηνία/Ώρα)
+        st.session_state.df_l = st.session_state.df_l.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
+        
         save_all()
-    except Exception as e:
-        print(f"Sync error: {e}")
+    except: pass
 
 # --- ΛΕΙΤΟΥΡΓΙΑ ΑΥΤΟΜΑΤΗΣ ΜΕΤΑΦΟΡΑΣ ΜΕΤΑ ΤΗ ΛΗΞΗ ---
 
@@ -509,23 +517,23 @@ def main():
             pend = pend.sort_values('temp_sort_dt', ascending=True).drop(columns=['temp_sort_dt'])
             
             for i, r in pend.iterrows():
-                c1, c2, c3 = st.columns([3, 4, 2])
-                c1.write(f"**{r['Μαθητής']}**")
-                # ΕΔΩ ΠΡΟΣΤΕΘΗΚΕ Η ΛΗΞΗ ΓΙΑ ΝΑ ΦΑΙΝΕΤΑΙ Η ΔΙΑΡΚΕΙΑ
-                c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']}")
-                
-                s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
-                if not s_match.empty:
-                    if r['Ημερομηνία'] == today_str:
-                        day_label = "το σημερινό μας μάθημα"
-                    elif r['Ημερομηνία'] == tomorrow_str:
-                        day_label = "το αυριανό μας μάθημα"
-                    else:
-                        day_label = f"το μάθημά μας στις {r['Ημερομηνία']}"
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([3, 4, 2])
+                    c1.write(f"**{r['Μαθητής']}**")
+                    c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']}")
                     
-                    sms_text = f"Υπενθυμίζω {day_label} στις {r['Ώρα']}. {greeting}"
-                    encoded_sms = urllib.parse.quote(sms_text)
-                    c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={encoded_sms}")
+                    s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
+                    if not s_match.empty:
+                        if r['Ημερομηνία'] == today_str:
+                            day_label = "το σημερινό μας μάθημα"
+                        elif r['Ημερομηνία'] == tomorrow_str:
+                            day_label = "το αυριανό μας μάθημα"
+                        else:
+                            day_label = f"το μάθημά μας στις {r['Ημερομηνία']}"
+                        
+                        sms_text = f"Υπενθυμίζω {day_label} στις {r['Ώρα']}. {greeting}"
+                        encoded_sms = urllib.parse.quote(sms_text)
+                        c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={encoded_sms}")
 
     elif menu == "💰 Οικονομικά": show_finance_section()
     elif menu == "👥 Μαθητές": show_student_management()
