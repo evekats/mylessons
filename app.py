@@ -461,14 +461,36 @@ def main():
         pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
         if pend.empty: st.success("Κανένα μάθημα.")
         else:
+            # Λογική για δυναμικά SMS
+            gr_tz = ZoneInfo('Europe/Athens')
+            now_dt = datetime.now(gr_tz)
+            today_str = now_dt.strftime('%d/%m/%Y')
+            tomorrow_str = (now_dt + timedelta(days=1)).strftime('%d/%m/%Y')
+            current_hour = now_dt.hour
+            greeting = "Καλή συνέχεια!" if current_hour >= 18 else "Καλή σας ημέρα!"
+
             pend['temp_sort_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             pend = pend.sort_values('temp_sort_dt', ascending=True).drop(columns=['temp_sort_dt'])
+            
             for i, r in pend.iterrows():
                 c1, c2, c3 = st.columns([3, 4, 2])
                 c1.write(f"**{r['Μαθητής']}**")
                 c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']}")
+                
                 s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
-                if not s_match.empty: c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={urllib.parse.quote('Υπενθύμιση μαθήματος.')}")
+                if not s_match.empty:
+                    # Δυναμικό κείμενο SMS
+                    if r['Ημερομηνία'] == today_str:
+                        day_label = "το σημερινό μας μάθημα"
+                    elif r['Ηmeρομηνία'] == tomorrow_str:
+                        day_label = "το αυριανό μας μάθημα"
+                    else:
+                        day_label = f"το μάθημά μας στις {r['Ημερομηνία']}"
+                    
+                    sms_text = f"Υπενθυμίζω {day_label} στις {r['Ώρα']}. {greeting}"
+                    encoded_sms = urllib.parse.quote(sms_text)
+                    c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={encoded_sms}")
+
     elif menu == "💰 Οικονομικά": show_finance_section()
     elif menu == "👥 Μαθητές": show_student_management()
     elif menu == "⚙️ Ρυθμίσεις": show_settings()
