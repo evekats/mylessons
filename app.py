@@ -87,7 +87,7 @@ def delete_user_account(username):
     ws_u = sheet.worksheet("users")
     users = pd.DataFrame(ws_u.get_all_records())
     if username in users['username'].values:
-        idx = users[users['username'] == username].index[0] + 2
+        idx = users[username == users['username']].index[0] + 2
         ws_u.delete_rows(idx)
     for tab in ["students", "lessons", "notes"]:
         ws = sheet.worksheet(tab)
@@ -207,6 +207,29 @@ def auto_sync():
             st.session_state.df_l = pd.concat([st.session_state.df_l, new_df], ignore_index=True)
         save_all()
     except: pass
+
+# --- ΛΕΙΤΟΥΡΓΙΑ ΑΥΤΟΜΑΤΗΣ ΜΕΤΑΦΟΡΑΣ ΜΕΤΑ ΤΗ ΛΗΞΗ ---
+
+def check_and_move_expired_lessons():
+    """Ελέγχει αν η ώρα λήξης ενός μαθήματος έχει παρέλθει και το στέλνει στις πληρωμές."""
+    gr_tz = ZoneInfo('Europe/Athens')
+    now = datetime.now(gr_tz).replace(tzinfo=None)
+    changed = False
+    
+    if 'df_l' in st.session_state and not st.session_state.df_l.empty:
+        for idx, row in st.session_state.df_l.iterrows():
+            if row['Κατάσταση'] == "Προγραμματισμένο":
+                try:
+                    # Συνδυασμός Ημερομηνίας και Λήξης για έλεγχο
+                    end_dt = datetime.strptime(f"{row['Ημερομηνία']} {row['Λήξη']}", "%d/%m/%Y %H:%M")
+                    if now >= end_dt:
+                        st.session_state.df_l.at[idx, 'Κατάσταση'] = "Ολοκληρώθηκε"
+                        changed = True
+                except:
+                    continue
+    
+    if changed:
+        save_all()
 
 # --- 6. ΕΝΟΤΗΤΕΣ ΕΦΑΡΜΟΓΗΣ ---
 
@@ -450,6 +473,10 @@ def main():
         return
 
     load_data(st.session_state.user)
+    
+    # ΑΥΤΟΜΑΤΟΣ ΕΛΕΓΧΟΣ ΛΗΞΗΣ ΜΑΘΗΜΑΤΩΝ (Κάθε φορά που φορτώνει η εφαρμογή)
+    check_and_move_expired_lessons()
+    
     if "menu_option" not in st.session_state: st.session_state.menu_option = "📊 Dashboard"
     menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
     if menu != st.session_state.menu_option: st.session_state.menu_option = menu; auto_collapse_sidebar(); st.rerun()
