@@ -348,8 +348,8 @@ def show_finance_section():
         c_m, c_y = st.columns(2)
         month = c_m.selectbox("Μήνας", list(range(1, 13)), index=datetime.now(gr_tz).month-1)
         year = c_y.selectbox("Έτος", [2025, 2026, 2027], index=1)
-        
         df_m = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε"].copy()
+        
         if not df_m.empty:
             df_m['m'] = df_m['Ημερομηνία'].apply(lambda x: int(x.split('/')[1]) if '/' in str(x) else 0)
             df_m['y'] = df_m['Ημερομηνία'].apply(lambda x: int(x.split('/')[2]) if '/' in str(x) else 0)
@@ -357,21 +357,60 @@ def show_finance_section():
             
             if not df_f.empty:
                 all_students_in_month = sorted(df_f['Μαθητής'].unique().tolist())
-                selected_students = st.multiselect("Επιλογή Μαθητών για Σύνολο", all_students_in_month, default=all_students_in_month)
+                selected_students = st.multiselect("Επιλογή Μαθητών (για Σύνολο ή Οικογένεια)", all_students_in_month)
                 
-                calculated_revenue = df_f[df_f['Μαθητής'].isin(selected_students)]['Ποσό'].sum()
-                st.metric("💶 Συνολικά Έσοδα Μήνα (Επιλεγμένα)", f"{calculated_revenue:.2f} €")
+                # --- ΔΥΝΑΜΙΚΗ ΟΜΑΔΟΠΟΙΗΣΗ ΟΙΚΟΓΕΝΕΙΑΣ ---
+                if selected_students:
+                    df_family = df_f[df_f['Μαθητής'].isin(selected_students)]
+                    total_family_revenue = df_family['Ποσό'].sum()
+                    unpaid_family = df_family[df_family['Πληρώθηκε'] == 'Όχι']['Ποσό'].sum()
+                    
+                    with st.container(border=True):
+                        st.subheader("👨‍👩‍👧‍👦 Σύνολο Επιλεγμένων (Οικογένεια)")
+                        col_f1, col_f2 = st.columns(2)
+                        col_f1.metric("Συνολικά Έσοδα", f"{total_family_revenue:.2f} €")
+                        col_f2.metric("Ανεξόφλητο Υπόλοιπο", f"{unpaid_family:.2f} €")
+                        
+                        # Κατασκευή μηνύματος SMS για την οικογένεια
+                        details = []
+                        for s in selected_students:
+                            c = len(df_family[df_family['Μαθητής'] == s])
+                            if c > 0:
+                                details.append(f"{c} {'μάθημα' if c==1 else 'μαθήματα'} στον/στην {s}")
+                        
+                        summary_text = " και ".join(details)
+                        now_hour = datetime.now(gr_tz).hour
+                        greeting = "Καλημέρα σας," if now_hour < 13 else "Καλησπέρα σας,"
+                        family_msg = f"{greeting} αυτόν τον μήνα έχουν γίνει {summary_text} και το συνολικό υπόλοιπο είναι {unpaid_family:.2f}€."
+                        
+                        # Παίρνουμε το τηλέφωνο του πρώτου επιλεγμένου για την αποστολή
+                        s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == selected_students[0]]
+                        if not s_info.empty:
+                            txt_encoded = urllib.parse.quote(family_msg)
+                            st.link_button(f"📱 Αποστολή SMS στην Οικογένεια", f"sms:{s_info.iloc[0]['Τηλέφωνο']}?body={txt_encoded}", use_container_width=True)
                 
                 st.divider()
+                
+                # --- ΑΤΟΜΙΚΗ ΑΝΑΦΟΡΑ ΑΝΑ ΜΑΘΗΤΗ (ΟΠΩΣ ΠΡΙΝ) ---
+                st.subheader("👤 Αναφορά ανά Μαθητή")
                 summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f} €"):
                         s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == row['Μαθητής']]
                         if not s_info.empty:
-                            txt = urllib.parse.quote(f"Καλησπέρα σας, αυτόν τον μήνα έχουν γίνει {row['Ημερομηνία']} μαθήματα. Το υπόλοιπο είναι {df_f[(df_f['Μαθητής'] == row['Μαθητής']) & (df_f['Πληρώθηκε'] == 'Όχι')]['Ποσό'].sum():.2f}€.")
+                            now_hour = datetime.now(ZoneInfo('Europe/Athens')).hour
+                            greeting = "Καλημέρα σας," if now_hour < 13 else "Καλησπέρα σας,"
+                            count = int(row['Ημερομηνία'])
+                            lesson_text = "έχει γίνει 1 μάθημα" if count == 1 else f"έχουν γίνει {count} μαθήματα"
+                            unpaid_amount = df_f[(df_f['Μαθητής'] == row['Μαθητής']) & (df_f['Πληρώθηκε'] == 'Όχι')]['Ποσό'].sum()
+                            full_msg = f"{greeting} αυτόν τον μήνα {lesson_text} και το υπόλοιπο είναι {unpaid_amount:.2f}€."
+                            txt = urllib.parse.quote(full_msg)
                             st.link_button(f"📱 Αποστολή SMS", f"sms:{s_info.iloc[0]['Τηλέφωνο']}?body={txt}")
+                        
                         for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']}: {det['Ποσό']:.2f}€")
+            else:
+                st.info("Δεν βρέθηκαν ολοκληρωμένα μαθήματα για αυτόν τον μήνα.")
 
 def show_student_management():
     if 'view_mode' not in st.session_state: st.session_state.view_mode = 'list'
