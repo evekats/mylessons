@@ -282,7 +282,9 @@ def show_dashboard():
 def show_finance_section():
     st.header("💰 Οικονομικά")
     tab_p, tab_r = st.tabs(["💵 Πληρωμές", "📈 Μηνιαία Αναφορά"])
+    
     with tab_p:
+        # ... (Ο κώδικας των Πληρωμών παραμένει ίδιος) ...
         if not st.session_state.df_s.empty:
             with st.expander("➕ Προσθήκη Μαθήματος"):
                 with st.form("manual_lesson_form"):
@@ -310,9 +312,7 @@ def show_finance_section():
                     t2 = datetime.strptime(r['Λήξη'], '%H:%M')
                     current_hours = (t2 - t1).seconds / 3600
                 except: current_hours = 1.0
-                
                 c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
-                
                 if st.session_state.get(f"edit_{i}"):
                     new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}", label_visibility="collapsed")
                     if c2.button("💾", key=f"sv_{i}"):
@@ -328,9 +328,7 @@ def show_finance_section():
                     col_price, col_edit = c2.columns([2, 1])
                     col_price.write(f"**{r['Ποσό']:.1f}€**")
                     if col_edit.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
-                
                 pay_val = c3.number_input("€", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}", format="%.2f", label_visibility="collapsed")
-                
                 b1, b2 = c4.columns(2)
                 if b1.button("✔️", key=f"ok_{i}"):
                     diff = round(float(pay_val) - float(r['Ποσό']), 2)
@@ -371,27 +369,34 @@ def show_finance_section():
                         col_f1.metric("Συνολικά Έσοδα", f"{total_family_revenue:.2f} €")
                         col_f2.metric("Ανεξόφλητο Υπόλοιπο", f"{unpaid_family:.2f} €")
                         
-                        # Κατασκευή μηνύματος SMS για την οικογένεια
+                        # Συλλογή τηλεφώνων των επιλεγμένων μαθητών
+                        phones = {}
                         details = []
                         for s in selected_students:
                             c = len(df_family[df_family['Μαθητής'] == s])
                             if c > 0:
                                 details.append(f"{c} {'μάθημα' if c==1 else 'μαθήματα'} στον/στην {s}")
+                            
+                            s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == s]
+                            if not s_info.empty:
+                                ph = str(s_info.iloc[0]['Τηλέφωνο'])
+                                phones[f"{s} ({ph})"] = ph
+                        
+                        # Επιλογή παραλήπτη αν υπάρχουν διαφορετικά τηλέφωνα
+                        target_phone_label = st.radio("Αποστολή SMS στο τηλέφωνο του/της:", list(phones.keys()), horizontal=True)
+                        target_phone = phones[target_phone_label]
                         
                         summary_text = " και ".join(details)
                         now_hour = datetime.now(gr_tz).hour
                         greeting = "Καλημέρα σας," if now_hour < 13 else "Καλησπέρα σας,"
                         family_msg = f"{greeting} αυτόν τον μήνα έχουν γίνει {summary_text} και το συνολικό υπόλοιπο είναι {unpaid_family:.2f}€."
                         
-                        # Παίρνουμε το τηλέφωνο του πρώτου επιλεγμένου για την αποστολή
-                        s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == selected_students[0]]
-                        if not s_info.empty:
-                            txt_encoded = urllib.parse.quote(family_msg)
-                            st.link_button(f"📱 Αποστολή SMS στην Οικογένεια", f"sms:{s_info.iloc[0]['Τηλέφωνο']}?body={txt_encoded}", use_container_width=True)
+                        txt_encoded = urllib.parse.quote(family_msg)
+                        st.link_button(f"📱 Αποστολή SMS στην Οικογένεια", f"sms:{target_phone}?body={txt_encoded}", use_container_width=True)
                 
                 st.divider()
                 
-                # --- ΑΤΟΜΙΚΗ ΑΝΑΦΟΡΑ ΑΝΑ ΜΑΘΗΤΗ (ΟΠΩΣ ΠΡΙΝ) ---
+                # --- ΑΤΟΜΙΚΗ ΑΝΑΦΟΡΑ ΑΝΑ ΜΑΘΗΤΗ ---
                 st.subheader("👤 Αναφορά ανά Μαθητή")
                 summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
@@ -411,6 +416,7 @@ def show_finance_section():
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']}: {det['Ποσό']:.2f}€")
             else:
                 st.info("Δεν βρέθηκαν ολοκληρωμένα μαθήματα για αυτόν τον μήνα.")
+
 
 def show_student_management():
     if 'view_mode' not in st.session_state: st.session_state.view_mode = 'list'
