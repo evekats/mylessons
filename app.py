@@ -144,8 +144,6 @@ def load_data(username):
         st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
     else:
         df_l_raw['Ποσό'] = df_l_raw['Ποσό'].apply(clean_currency)
-        # Καθαρισμός διπλοτύπων κατά τη φόρτωση
-        df_l_raw = df_l_raw.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
         st.session_state.df_l = df_l_raw
 
     notes = load_data_from_sheet("notes", username)
@@ -161,16 +159,15 @@ def load_data(username):
 
 def save_all():
     user = st.session_state.user
-    # Πριν το σώσιμο, σιγουρευόμαστε ότι δεν υπάρχουν διπλά
     if 'df_l' in st.session_state:
-        st.session_state.df_l = st.session_state.df_l.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
+        st.session_state.df_l = st.session_state.df_l.drop_duplicates(subset=['UID'], keep='last')
     save_data_to_sheet(st.session_state.df_s, "students", user)
     save_data_to_sheet(st.session_state.df_l, "lessons", user)
     save_data_to_sheet(st.session_state.df_n, "notes", user)
     st.cache_data.clear()
     st.session_state.last_load = datetime.now()
 
-# --- 5. ΣΥΓΧΡΟΝΙΣΜΟΣ ICLOUD ---
+# --- 5. ΣΥΓΧΡΟΝΙΣΜΟΣ ICLOUD (MODIFIED) ---
 
 def auto_sync():
     cal_url = st.session_state.cal_url
@@ -181,28 +178,19 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
-        # 1. Φιλτράρισμα: Κρατάμε τα "Locked", "Manual" και "Ολοκληρωμένα"
-        # Διαγράφουμε προσωρινά τα απλά "Προγραμματισμένα" για να τα φέρουμε φρέσκα
-        st.session_state.df_l = st.session_state.df_l[
-            (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
-            (st.session_state.df_l['UID'].astype(str).str.startswith('locked_')) |
-            (st.session_state.df_l['UID'].astype(str).str.startswith('manual_'))
-        ].reset_index(drop=True)
-
-        start_limit, end_limit = now - timedelta(days=7), now + timedelta(days=30)
-        new_lessons = []
+        # 1. Καθορισμός ορίων: Από σήμερα έως και 7 ημέρες μετά (κυλιόμενη εβδομάδα)
+        start_limit = now.replace(hour=0, minute=0, second=0)
+        end_limit = start_limit + timedelta(days=7)
         
-        # Λίστα με τα UID που έχουμε ήδη στη βάση (locked ή άλλα)
-        existing_uids = st.session_state.df_l['UID'].astype(str).tolist()
-
+        # Λήψη δεδομένων σε λίστα για ευκολότερη διαχείριση και ενημέρωση
+        lessons_list = st.session_state.df_l.values.tolist()
+        columns = st.session_state.df_l.columns.tolist()
+        uid_index = columns.index("UID")
+        
         for comp in gcal.walk('VEVENT'):
             summary = str(comp.get('summary', ''))
             uid = str(comp.get('uid', ''))
             
-            # Έλεγχος αν το UID υπάρχει ήδη (είτε σκέτο είτε με πρόθεμα locked_)
-            if uid in existing_uids or f"locked_{uid}" in existing_uids:
-                continue
-
             if not summary.strip().lower().startswith("μάθημα"): continue
             
             start = comp.get('dtstart').dt
@@ -218,16 +206,25 @@ def auto_sync():
                     d_str, t_start, t_end = start.strftime('%d/%m/%Y'), start.strftime('%H:%M'), end.strftime('%H:%M')
                     price = round(float(((end - start).total_seconds() / 3600) * float(match['Τιμή'])), 2)
                     status = "Προγραμματισμένο" if now < end else "Ολοκληρώθηκε"
+
+                    # Έλεγχος για υπάρχον UID ώστε να ενημερωθεί η ώρα αν άλλαξε
+                    found = False
+                    for i, row in enumerate(lessons_list):
+                        if str(row[uid_index]) == uid or str(row[uid_index]) == f"locked_{uid}":
+                            # Αν το μάθημα δεν έχει πληρωθεί, επιτρέπουμε την ενημέρωση ώρας/μέρας
+                            if row[columns.index("Πληρώθηκε")] == "Όχι":
+                                lessons_list[i][1] = d_str
+                                lessons_list[i][2] = t_start
+                                lessons_list[i][3] = t_end
+                                lessons_list[i][4] = price
+                                lessons_list[i][5] = status
+                            found = True
+                            break
                     
-                    new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, status, "Όχι", uid])
+                    if not found:
+                        lessons_list.append([match['Όνομα'], d_str, t_start, t_end, price, status, "Όχι", uid])
         
-        if new_lessons:
-            new_df = pd.DataFrame(new_lessons, columns=st.session_state.df_l.columns)
-            st.session_state.df_l = pd.concat([st.session_state.df_l, new_df], ignore_index=True)
-        
-        # ΤΕΛΙΚΟΣ ΚΑΘΑΡΙΣΜΟΣ ΔΙΠΛΟΤΥΠΩΝ (βασισμένος σε Μαθητή/Ημερομηνία/Ώρα)
-        st.session_state.df_l = st.session_state.df_l.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
-        
+        st.session_state.df_l = pd.DataFrame(lessons_list, columns=columns)
         save_all()
     except: pass
 
@@ -284,7 +281,6 @@ def show_finance_section():
     tab_p, tab_r = st.tabs(["💵 Πληρωμές", "📈 Μηνιαία Αναφορά"])
     
     with tab_p:
-        # ... (Ο κώδικας των Πληρωμών παραμένει ίδιος) ...
         if not st.session_state.df_s.empty:
             with st.expander("➕ Προσθήκη Μαθήματος"):
                 with st.form("manual_lesson_form"):
@@ -357,7 +353,6 @@ def show_finance_section():
                 all_students_in_month = sorted(df_f['Μαθητής'].unique().tolist())
                 selected_students = st.multiselect("Επιλογή Μαθητών (για Σύνολο ή Οικογένεια)", all_students_in_month)
                 
-                # --- ΔΥΝΑΜΙΚΗ ΟΜΑΔΟΠΟΙΗΣΗ ΟΙΚΟΓΕΝΕΙΑΣ ---
                 if selected_students:
                     df_family = df_f[df_f['Μαθητής'].isin(selected_students)]
                     total_family_revenue = df_family['Ποσό'].sum()
@@ -369,20 +364,17 @@ def show_finance_section():
                         col_f1.metric("Συνολικά Έσοδα", f"{total_family_revenue:.2f} €")
                         col_f2.metric("Ανεξόφλητο Υπόλοιπο", f"{unpaid_family:.2f} €")
                         
-                        # Συλλογή τηλεφώνων των επιλεγμένων μαθητών
                         phones = {}
                         details = []
                         for s in selected_students:
                             c = len(df_family[df_family['Μαθητής'] == s])
                             if c > 0:
                                 details.append(f"{c} {'μάθημα' if c==1 else 'μαθήματα'} στον/στην {s}")
-                            
                             s_info = st.session_state.df_s[st.session_state.df_s['Όνομα'] == s]
                             if not s_info.empty:
                                 ph = str(s_info.iloc[0]['Τηλέφωνο'])
                                 phones[f"{s} ({ph})"] = ph
                         
-                        # Επιλογή παραλήπτη αν υπάρχουν διαφορετικά τηλέφωνα
                         target_phone_label = st.radio("Αποστολή SMS στο τηλέφωνο του/της:", list(phones.keys()), horizontal=True)
                         target_phone = phones[target_phone_label]
                         
@@ -390,14 +382,10 @@ def show_finance_section():
                         now_hour = datetime.now(gr_tz).hour
                         greeting = "Καλημέρα σας," if now_hour < 13 else "Καλησπέρα σας,"
                         family_msg = f"{greeting} αυτόν τον μήνα έχουν γίνει {summary_text} και το συνολικό υπόλοιπο είναι {unpaid_family:.2f}€."
-                        
                         txt_encoded = urllib.parse.quote(family_msg)
                         st.link_button(f"📱 Αποστολή SMS στην Οικογένεια", f"sms:{target_phone}?body={txt_encoded}", use_container_width=True)
                 
                 st.divider()
-                
-                # --- ΑΤΟΜΙΚΗ ΑΝΑΦΟΡΑ ΑΝΑ ΜΑΘΗΤΗ ---
-                st.subheader("👤 Αναφορά ανά Μαθητή")
                 summary = df_f.groupby('Μαθητής').agg({'Ποσό': 'sum', 'Ημερομηνία': 'count'}).reset_index()
                 for _, row in summary.iterrows():
                     with st.expander(f"{row['Μαθητής']} | Σύνολο: {row['Ποσό']:.2f} €"):
@@ -411,12 +399,8 @@ def show_finance_section():
                             full_msg = f"{greeting} αυτόν τον μήνα {lesson_text} και το υπόλοιπο είναι {unpaid_amount:.2f}€."
                             txt = urllib.parse.quote(full_msg)
                             st.link_button(f"📱 Αποστολή SMS", f"sms:{s_info.iloc[0]['Τηλέφωνο']}?body={txt}")
-                        
                         for _, det in df_f[df_f['Μαθητής'] == row['Μαθητής']].iterrows():
                             st.write(f"{'✅' if det['Πληρώθηκε']=='Ναι' else '⏳'} {det['Ημερομηνία']}: {det['Ποσό']:.2f}€")
-            else:
-                st.info("Δεν βρέθηκαν ολοκληρωμένα μαθήματα για αυτόν τον μήνα.")
-
 
 def show_student_management():
     if 'view_mode' not in st.session_state: st.session_state.view_mode = 'list'
@@ -488,8 +472,7 @@ def show_student_management():
                         st.write(nr['Σημειώσεις'])
                         if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
                         if c2.button("🗑️", key=f"dn_{idx}"):
-                            st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
-                            save_all(); st.rerun()
+                            st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True); save_all(); st.rerun()
 
         with t3:
             hist = st.session_state.df_l[
@@ -506,8 +489,7 @@ def show_student_management():
                     icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
                     hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
                     if hc2.button("🗑️", key=f"del_hist_{idx}"):
-                        st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
-                        save_all(); st.rerun()
+                        st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True); save_all(); st.rerun()
 
 def show_settings():
     st.header("⚙️ Ρυθμίσεις")
