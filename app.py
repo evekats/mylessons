@@ -1,4 +1,4 @@
-import streamlit as st
+ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
@@ -179,18 +179,15 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
-        # 1. Καθαρισμός: Αφαιρούμε τα "Προγραμματισμένα" που έχουν ήδη περάσει χρονικά 
-        # ή ανήκουν στο μέλλον αλλά δεν είναι "κλειδωμένα", για να τα ξαναφέρει φρέσκα το sync
+        # 1. Καθαρισμός: Κρατάμε μόνο χειροκίνητα, κλειδωμένα ή ήδη πληρωμένα
         st.session_state.df_l = st.session_state.df_l[
             (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
             (st.session_state.df_l['UID'].astype(str).str.startswith('locked_')) |
             (st.session_state.df_l['UID'].astype(str).str.startswith('manual_'))
         ].reset_index(drop=True)
 
-        # 2. Ορισμός παραθύρου: Από σήμερα (τώρα) έως +7 ημέρες
-        # Με αυτόν τον τρόπο, μόλις περάσει η Δευτέρα, η "σημερινή" ώρα θα είναι Τρίτη, 
-        # οπότε το window θα πιάνει αυτόματα την επόμενη εβδομάδα.
-        start_limit = now 
+        # Ορίζουμε το παράθυρο: από 7 ημέρες πριν έως 7 μέρες μετά
+        start_limit = (now - timedelta(days=7)).replace(hour=0, minute=0, second=0)
         end_limit = (now + timedelta(days=7)).replace(hour=23, minute=59, second=59)
         
         new_lessons = []
@@ -200,11 +197,9 @@ def auto_sync():
             summary = str(comp.get('summary', ''))
             uid = str(comp.get('uid', ''))
             
-            # Αποφυγή διπλότυπων
             if uid in existing_uids or f"locked_{uid}" in existing_uids:
                 continue
 
-            # Φίλτρο λέξης κλειδιού
             if not summary.strip().lower().startswith("μάθημα"): continue
             
             start = comp.get('dtstart').dt
@@ -214,7 +209,6 @@ def auto_sync():
             end = comp.get('dtend').dt if comp.get('dtend') else start + timedelta(hours=1)
             if isinstance(end, datetime): end = end.astimezone(gr_tz).replace(tzinfo=None)
 
-            # 3. Έλεγχος αν το μάθημα είναι μέσα στις επόμενες 7 ημέρες
             if start_limit <= start <= end_limit:
                 match = next((s for _, s in st.session_state.df_s.iterrows() if s['Όνομα'].lower() in summary.lower()), None)
                 if match is not None:
@@ -223,8 +217,8 @@ def auto_sync():
                     t_end = end.strftime('%H:%M')
                     price = round(float(((end - start).total_seconds() / 3600) * float(match['Τιμή'])), 2)
                     
-                    # Εφόσον το start >= now, η κατάσταση είναι πάντα Προγραμματισμένο
-                    status = "Προγραμματισμένο"
+                    # Αν το μάθημα έληξε, πάει απευθείας "Ολοκληρώθηκε"
+                    status = "Ολοκληρώθηκε" if now >= end else "Προγραμματισμένο"
                     
                     new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, status, "Όχι", uid])
         
@@ -232,14 +226,10 @@ def auto_sync():
             new_df = pd.DataFrame(new_lessons, columns=st.session_state.df_l.columns)
             st.session_state.df_l = pd.concat([st.session_state.df_l, new_df], ignore_index=True)
         
-        # Τελική ταξινόμηση για να φαίνονται με τη σειρά στο Πρόγραμμα
-        st.session_state.df_l['temp_dt'] = pd.to_datetime(st.session_state.df_l['Ημερομηνία'] + " " + st.session_state.df_l['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
-        st.session_state.df_l = st.session_state.df_l.sort_values('temp_dt').drop(columns=['temp_dt'])
-        
+        st.session_state.df_l = st.session_state.df_l.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
         save_all()
     except Exception as e:
         st.error(f"Σφάλμα συγχρονισμού: {e}")
-
 
 # --- ΛΕΙΤΟΥΡΓΙΑ ΑΥΤΟΜΑΤΗΣ ΜΕΤΑΦΟΡΑΣ ΜΕΤΑ ΤΗ ΛΗΞΗ (UPDATED) ---
 
