@@ -4,3 +4,4 @@ requests
 icalendar
 gspread
 google-auth
+recurring-ical-events
