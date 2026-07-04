@@ -10,6 +10,7 @@ import urllib.parse
 import hashlib
 from zoneinfo import ZoneInfo
 import streamlit.components.v1 as components
+import recurring_ical_events
 
 # --- 1. ΒΟΗΘΗΤΙΚΕΣ ΣΥΝΑΡΤΗΣΕΙΣ & ΡΥΘΜΙΣΕΙΣ ---
 
@@ -179,58 +180,71 @@ def auto_sync():
         gr_tz = ZoneInfo('Europe/Athens')
         now = datetime.now(gr_tz).replace(tzinfo=None)
 
-        # 1. Καθαρισμός: Κρατάμε μόνο χειροκίνητα, κλειδωμένα ή ήδη πληρωμένα
+        # Καθαρισμός: Κρατάμε μόνο χειροκίνητα, κλειδωμένα ή ήδη πληρωμένα μαθήματα
         st.session_state.df_l = st.session_state.df_l[
             (st.session_state.df_l['Κατάσταση'] != "Προγραμματισμένο") | 
             (st.session_state.df_l['UID'].astype(str).str.startswith('locked_')) |
             (st.session_state.df_l['UID'].astype(str).str.startswith('manual_'))
         ].reset_index(drop=True)
 
-        # Ορίζουμε το παράθυρο: από 7 ημέρες πριν έως 7 μέρες μετά
+        # Ορίζουμε το χρονικό παράθυρο: 7 ημέρες πίσω έως 7 ημέρες μπροστά
         start_limit = (now - timedelta(days=7)).replace(hour=0, minute=0, second=0)
         end_limit = (now + timedelta(days=7)).replace(hour=23, minute=59, second=59)
         
         new_lessons = []
         existing_uids = st.session_state.df_l['UID'].astype(str).tolist()
 
-        for comp in gcal.walk('VEVENT'):
-            summary = str(comp.get('summary', ''))
-            uid = str(comp.get('uid', ''))
-            
-            if uid in existing_uids or f"locked_{uid}" in existing_uids:
-                continue
+        # Χρήση της νέας βιβλιοθήκης για αυτόματη εμφάνιση των επαναλαμβανόμενων γεγονότων
+        events = recurring_ical_events.of(gcal).between(start_limit, end_limit)
 
+        for comp in events:
+            summary = str(comp.get('summary', ''))
+            base_uid = str(comp.get('uid', ''))
+            
+            # Φιλτράρουμε ώστε να διαβάζει μόνο όσα ξεκινούν με "Μάθημα"
             if not summary.strip().lower().startswith("μάθημα"): continue
             
             start = comp.get('dtstart').dt
-            if not isinstance(start, datetime): continue
+            
+            # Διόρθωση αν το event έχει καταχωρηθεί ως ολοήμερο (date αντί για datetime)
+            if type(start) is date:
+                start = datetime.combine(start, datetime.min.time())
             start = start.astimezone(gr_tz).replace(tzinfo=None)
             
             end = comp.get('dtend').dt if comp.get('dtend') else start + timedelta(hours=1)
-            if isinstance(end, datetime): end = end.astimezone(gr_tz).replace(tzinfo=None)
+            if type(end) is date:
+                end = datetime.combine(end, datetime.min.time())
+            end = end.astimezone(gr_tz).replace(tzinfo=None)
 
-            if start_limit <= start <= end_limit:
-                match = next((s for _, s in st.session_state.df_s.iterrows() if s['Όνομα'].lower() in summary.lower()), None)
-                if match is not None:
-                    d_str = start.strftime('%d/%m/%Y')
-                    t_start = start.strftime('%H:%M')
-                    t_end = end.strftime('%H:%M')
-                    price = round(float(((end - start).total_seconds() / 3600) * float(match['Τιμή'])), 2)
-                    
-                    # Αν το μάθημα έληξε, πάει απευθείας "Ολοκληρώθηκε"
-                    status = "Ολοκληρώθηκε" if now >= end else "Προγραμματισμένο"
-                    
-                    new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, status, "Όχι", uid])
+            # Δημιουργία ΜΟΝΑΔΙΚΟΥ UID για την συγκεκριμένη ημερομηνία (π.χ. uid_20260704)
+            occurrence_uid = f"{base_uid}_{start.strftime('%Y%m%d')}"
+            
+            # Έλεγχος αν αυτό το συγκεκριμένο μάθημα αυτής της εβδομάδας υπάρχει ήδη
+            if occurrence_uid in existing_uids or f"locked_{occurrence_uid}" in existing_uids:
+                continue
+
+            # Αναζήτηση μαθητή βάσει ονόματος στο summary
+            match = next((s for _, s in st.session_state.df_s.iterrows() if s['Όνομα'].lower() in summary.lower()), None)
+            if match is not None:
+                d_str = start.strftime('%d/%m/%Y')
+                t_start = start.strftime('%H:%M')
+                t_end = end.strftime('%H:%M')
+                price = round(float(((end - start).total_seconds() / 3600) * float(match['Τιμή'])), 2)
+                
+                # Αν η ώρα του μαθήματος πέρασε, γίνεται αυτόματα "Ολοκληρώθηκε"
+                status = "Ολοκληρώθηκε" if now >= end else "Προγραμματισμένο"
+                
+                new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, status, "Όχι", occurrence_uid])
         
         if new_lessons:
             new_df = pd.DataFrame(new_lessons, columns=st.session_state.df_l.columns)
             st.session_state.df_l = pd.concat([st.session_state.df_l, new_df], ignore_index=True)
         
+        # Αφαίρεση τυχόν διπλοεγγραφών για σιγουριά
         st.session_state.df_l = st.session_state.df_l.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
         save_all()
     except Exception as e:
         st.error(f"Σφάλμα συγχρονισμού: {e}")
-
 # --- ΛΕΙΤΟΥΡΓΙΑ ΑΥΤΟΜΑΤΗΣ ΜΕΤΑΦΟΡΑΣ ΜΕΤΑ ΤΗ ΛΗΞΗ (UPDATED) ---
 
 def check_and_move_expired_lessons():
