@@ -524,37 +524,37 @@ def show_student_management():
                     custom_amount = st.number_input("Ποσό Πληρωμής (€)", min_value=0.0, step=5.0, key=f"amt_in_{sel}")
 
                 with col3:
-            if st.button("Εξόφληση Χ ποσού", key=f"pay_x_{sel}"):
-                if custom_amount > 0:
-                    # Φέρνουμε μόνο τα ολοκληρωμένα για εξόφληση
-                    unpaid_lessons = st.session_state.df_l[unpaid_mask].sort_values(by='Ημερομηνία')
+                    if st.button("Εξόφληση Χ ποσού", key=f"pay_x_{sel}"):
+                        if custom_amount > 0:
+                            # Φέρνουμε μόνο τα ολοκληρωμένα για εξόφληση
+                            unpaid_lessons = st.session_state.df_l[unpaid_mask].sort_values(by='Ημερομηνία')
                     
-                    remaining_money = custom_amount
-                    for idx, row in unpaid_lessons.iterrows():
-                        lesson_price = float(row['Ποσό'])
-                        if remaining_money >= lesson_price:
-                            st.session_state.df_l.at[idx, 'Πληρώθηκε'] = 'Ναι'
-                            remaining_money -= lesson_price
-                        else:
-                            break
+                            remaining_money = custom_amount
+                            for idx, row in unpaid_lessons.iterrows():
+                                lesson_price = float(row['Ποσό'])
+                                if remaining_money >= lesson_price:
+                                    st.session_state.df_l.at[idx, 'Πληρώθηκε'] = 'Ναι'
+                                    remaining_money -= lesson_price
+                                else:
+                                    break
                     
-                    if remaining_money > 0:
-                        if 'Πιστωτικό' not in st.session_state.df_s.columns:
-                            st.session_state.df_s['Πιστωτικό'] = 0.0
-                            old_credit = 0.0
-                        else:
-                            val = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
-                            try:
-                                old_credit = float(val) if (pd.notna(val) and str(val).strip() != "") else 0.0
-                            except (ValueError, TypeError):
-                                old_credit = 0.0
+                            if remaining_money > 0:
+                                if 'Πιστωτικό' not in st.session_state.df_s.columns:
+                                    st.session_state.df_s['Πιστωτικό'] = 0.0
+                                    old_credit = 0.0
+                                else:
+                                    val = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
+                                    try:
+                                        old_credit = float(val) if (pd.notna(val) and str(val).strip() != "") else 0.0
+                                    except (ValueError, TypeError):
+                                        old_credit = 0.0
                         
-                        st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + remaining_money, 2)
+                                st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + remaining_money, 2)
                     
-                    save_all()
-                    st.rerun()
-            else:
-                st.warning("Γίνεται φόρτωση των δεδομένων...")
+                            save_all()
+                            st.rerun()
+                                else:
+                                    st.warning("Γίνεται φόρτωση των δεδομένων...")
         with t2:
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις Μαθήματος")
