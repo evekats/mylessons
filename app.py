@@ -13,7 +13,30 @@ import streamlit.components.v1 as components
 import recurring_ical_events
 
 # --- 1. ΒΟΗΘΗΤΙΚΕΣ ΣΥΝΑΡΤΗΣΕΙΣ & ΡΥΘΜΙΣΕΙΣ ---
-
+def auto_apply_credits():
+    # Σιγουρευόμαστε ότι υπάρχει η στήλη 'Πιστωτικό' στους μαθητές, αν όχι τη φτιάχνουμε με 0.0
+    if 'Πιστωτικό' not in st.session_state.df_s.columns:
+        st.session_state.df_s['Πιστωτικό'] = 0.0
+        
+    for idx, student in st.session_state.df_s.iterrows():
+        student_name = student['Όνομα']
+        credit = float(student.get('Πιστωτικό', 0.0))
+        
+        # Αν ο μαθητής έχει αφήσει έναντι (πιστωτικό > 0) και έχει απλήρωτα μαθήματα
+        if credit > 0:
+            unpaid_mask = (st.session_state.df_l['Μαθητής'] == student_name) & (st.session_state.df_l['Πληρωμένο'] == 'Όχι')
+            unpaid_lessons = st.session_state.df_l[unpaid_mask].sort_values(by='Ημερομηνία')
+            
+            for l_idx, lesson in unpaid_lessons.iterrows():
+                lesson_price = float(lesson['Τιμή'])
+                if credit >= lesson_price:
+                    # Το πιστωτικό καλύπτει όλο το μάθημα, οπότε πληρώνεται αυτόματα
+                    st.session_state.df_l.at[l_idx, 'Πληρωμένο'] = 'Ναι'
+                    credit -= lesson_price
+                    st.session_state.df_s.at[idx, 'Πιστωτικό'] = round(credit, 2)
+                else:
+                    # Αν το πιστωτικό δεν φτάνει για ολόκληρο το μάθημα, σταματάμε
+                    break
 def auto_collapse_sidebar():
     components.html(
         """
