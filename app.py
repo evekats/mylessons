@@ -555,131 +555,131 @@ def show_student_management():
                             st.rerun()
                                 else:
                                     st.warning("Γίνεται φόρτωση των δεδομένων...")
-        with t2:
-            with st.form("note_page", clear_on_submit=True):
-                nt = st.text_area("Σημειώσεις Μαθήματος")
-                ex_date = st.date_input("Προγραμματισμός Διαγωνίσματος", value=None, format="DD/MM/YYYY")
-                uploaded_file = st.file_uploader("Αρχείο/Φωτογραφία")
-                manual_link = st.text_input("Link")
-                if st.form_submit_button("Αποθήκευση"):
-                    f_link = manual_link
-                    if uploaded_file:
-                        f_link = os.path.join(UPLOAD_DIR, uploaded_file.name)
-                        with open(f_link, "wb") as f: f.write(uploaded_file.getbuffer())
-                    new_n = pd.DataFrame([[sel, datetime.now().strftime('%d/%m/%Y'), nt, f_link, ex_date.strftime('%Y-%m-%d') if ex_date else ""]], columns=st.session_state.df_n.columns)
-                    st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True); save_all(); st.rerun()
-            
-            st.subheader("Ιστορικό Σημειώσεων")
-            student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
-            if student_notes.empty:
-                st.info("Δεν υπάρχουν σημειώσεις.")
-            else:
-                for idx, nr in student_notes.iterrows():
-                    with st.container(border=True):
-                        c1, c2 = st.columns([0.85, 0.15])
-                        c1.markdown(f"**📅 {nr['Ημερομηνία']}**")
-                        if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
-                            try:
-                                formatted_exam = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d').strftime('%d/%m/%Y')
-                                c1.error(f"🚨 Διαγώνισμα: {formatted_exam}")
-                            except: pass
-                        st.write(nr['Σημειώσεις'])
-                        if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
-                        if c2.button("🗑️", key=f"dn_{idx}"):
-                            st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
-                            save_all(); st.rerun()
-
-        with t3:
-            hist = st.session_state.df_l[
-                (st.session_state.df_l['Μαθητής'] == sel) & 
-                (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε")
-            ].copy()
-            if hist.empty:
-                st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα.")
-            else:
-                hist['temp_dt'] = pd.to_datetime(hist['Ημερομηνία'], format="%d/%m/%Y", errors='coerce')
-                hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
-                for idx, hr in hist.iterrows():
-                    hc1, hc2 = st.columns([9, 1])
-                    icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
-                    hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
-                    if hc2.button("🗑️", key=f"del_hist_{idx}"):
-                        st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
-                        save_all(); st.rerun()
-
-def show_settings():
-    st.header("⚙️ Ρυθμίσεις")
-    with st.expander("🔗 iCloud & Password"):
-        with st.form("update_u"):
-            n_url, n_pw = st.text_input("iCloud Link", value=st.session_state.cal_url), st.text_input("Νέος Κωδικός", type="password")
-            if st.form_submit_button("Αποθήκευση"):
-                if update_user_data(st.session_state.user, n_url, n_pw if n_pw else None):
-                    st.session_state.cal_url = n_url; st.success("Ενημερώθηκε!")
-                else: st.error("Σφάλμα.")
-    if st.button("🔴 Διαγραφή Λογαριασμού", type="primary"): delete_user_account(st.session_state.user); st.session_state.clear(); st.rerun()
-
-# --- 7. ΚΥΡΙΑ ΡΟΗ ΕΦΑΡΜΟΓΗΣ ---
-
-def main():
-    st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
-    if "auth" not in st.session_state: st.session_state.auth = False
-    if not st.session_state.auth:
-        st.title("📚 MyLessons")
-        u, p = st.text_input("Username"), st.text_input("Password", type="password")
-        if st.button("Log in", use_container_width=True):
-            users = get_users()
-            row = users[users['username'] == u]
-            if not row.empty and row['password'].values[0] == hash_pw(p):
-                st.session_state.auth, st.session_state.user, st.session_state.cal_url = True, u, row['cal_url'].values[0]
-                load_data(u); st.rerun()
-            else: st.error("Λάθος στοιχεία!")
-        return
-
-    load_data(st.session_state.user)
-    check_and_move_expired_lessons()
-    
-    if "menu_option" not in st.session_state: st.session_state.menu_option = "📊 Dashboard"
-    menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
-    if menu != st.session_state.menu_option: st.session_state.menu_option = menu; auto_collapse_sidebar(); st.rerun()
-    if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
-
-    if menu == "📊 Dashboard": show_dashboard()
-    elif menu == "📅 Πρόγραμμα":
-        st.header("📅 Πρόγραμμα")
-        pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
-        if pend.empty: st.success("Κανένα μάθημα.")
-        else:
-            gr_tz = ZoneInfo('Europe/Athens')
-            now_dt = datetime.now(gr_tz)
-            today_str = now_dt.strftime('%d/%m/%Y')
-            tomorrow_str = (now_dt + timedelta(days=1)).strftime('%d/%m/%Y')
-            current_hour = now_dt.hour
-            greeting = "Καλή συνέχεια!" if current_hour >= 13 else "Καλή σας ημέρα!"
-
-            pend['temp_sort_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
-            pend = pend.sort_values('temp_sort_dt', ascending=True).drop(columns=['temp_sort_dt'])
-            
-            for i, r in pend.iterrows():
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 4, 2])
-                    c1.write(f"**{r['Μαθητής']}**")
-                    c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']}")
+                with t2:
+                    with st.form("note_page", clear_on_submit=True):
+                        nt = st.text_area("Σημειώσεις Μαθήματος")
+                        ex_date = st.date_input("Προγραμματισμός Διαγωνίσματος", value=None, format="DD/MM/YYYY")
+                        uploaded_file = st.file_uploader("Αρχείο/Φωτογραφία")
+                        manual_link = st.text_input("Link")
+                        if st.form_submit_button("Αποθήκευση"):
+                            f_link = manual_link
+                            if uploaded_file:
+                                f_link = os.path.join(UPLOAD_DIR, uploaded_file.name)
+                                with open(f_link, "wb") as f: f.write(uploaded_file.getbuffer())
+                            new_n = pd.DataFrame([[sel, datetime.now().strftime('%d/%m/%Y'), nt, f_link, ex_date.strftime('%Y-%m-%d') if ex_date else ""]], columns=st.session_state.df_n.columns)
+                            st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True); save_all(); st.rerun()
                     
-                    s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
-                    if not s_match.empty:
-                        if r['Ημερομηνία'] == today_str:
-                            day_label = "το σημερινό μας μάθημα"
-                        elif r['Ημερομηνία'] == tomorrow_str:
-                            day_label = "το αυριανό μας μάθημα"
-                        else:
-                            day_label = f"το μάθημά μας στις {r['Ημερομηνία']}"
-                        
-                        sms_text = f"Υπενθυμίζω {day_label} στις {r['Ώρα']}. {greeting}"
-                        encoded_sms = urllib.parse.quote(sms_text)
-                        c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={encoded_sms}")
-
-    elif menu == "💰 Οικονομικά": show_finance_section()
-    elif menu == "👥 Μαθητές": show_student_management()
-    elif menu == "⚙️ Ρυθμίσεις": show_settings()
-
-if __name__ == "__main__": main()
+                    st.subheader("Ιστορικό Σημειώσεων")
+                    student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
+                    if student_notes.empty:
+                        st.info("Δεν υπάρχουν σημειώσεις.")
+                    else:
+                        for idx, nr in student_notes.iterrows():
+                            with st.container(border=True):
+                                c1, c2 = st.columns([0.85, 0.15])
+                                c1.markdown(f"**📅 {nr['Ημερομηνία']}**")
+                                if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
+                                    try:
+                                        formatted_exam = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d').strftime('%d/%m/%Y')
+                                        c1.error(f"🚨 Διαγώνισμα: {formatted_exam}")
+                                    except: pass
+                                st.write(nr['Σημειώσεις'])
+                                if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
+                                if c2.button("🗑️", key=f"dn_{idx}"):
+                                    st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
+                                    save_all(); st.rerun()
+        
+                with t3:
+                    hist = st.session_state.df_l[
+                        (st.session_state.df_l['Μαθητής'] == sel) & 
+                        (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε")
+                    ].copy()
+                    if hist.empty:
+                        st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα.")
+                    else:
+                        hist['temp_dt'] = pd.to_datetime(hist['Ημερομηνία'], format="%d/%m/%Y", errors='coerce')
+                        hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
+                        for idx, hr in hist.iterrows():
+                            hc1, hc2 = st.columns([9, 1])
+                            icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
+                            hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
+                            if hc2.button("🗑️", key=f"del_hist_{idx}"):
+                                st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
+                                save_all(); st.rerun()
+        
+        def show_settings():
+            st.header("⚙️ Ρυθμίσεις")
+            with st.expander("🔗 iCloud & Password"):
+                with st.form("update_u"):
+                    n_url, n_pw = st.text_input("iCloud Link", value=st.session_state.cal_url), st.text_input("Νέος Κωδικός", type="password")
+                    if st.form_submit_button("Αποθήκευση"):
+                        if update_user_data(st.session_state.user, n_url, n_pw if n_pw else None):
+                            st.session_state.cal_url = n_url; st.success("Ενημερώθηκε!")
+                        else: st.error("Σφάλμα.")
+            if st.button("🔴 Διαγραφή Λογαριασμού", type="primary"): delete_user_account(st.session_state.user); st.session_state.clear(); st.rerun()
+        
+        # --- 7. ΚΥΡΙΑ ΡΟΗ ΕΦΑΡΜΟΓΗΣ ---
+        
+        def main():
+            st.set_page_config(page_title="MyLessons Pro", layout="wide", page_icon="📚", initial_sidebar_state="collapsed")
+            if "auth" not in st.session_state: st.session_state.auth = False
+            if not st.session_state.auth:
+                st.title("📚 MyLessons")
+                u, p = st.text_input("Username"), st.text_input("Password", type="password")
+                if st.button("Log in", use_container_width=True):
+                    users = get_users()
+                    row = users[users['username'] == u]
+                    if not row.empty and row['password'].values[0] == hash_pw(p):
+                        st.session_state.auth, st.session_state.user, st.session_state.cal_url = True, u, row['cal_url'].values[0]
+                        load_data(u); st.rerun()
+                    else: st.error("Λάθος στοιχεία!")
+                return
+        
+            load_data(st.session_state.user)
+            check_and_move_expired_lessons()
+            
+            if "menu_option" not in st.session_state: st.session_state.menu_option = "📊 Dashboard"
+            menu = st.sidebar.radio("Μενού:", ["📊 Dashboard", "📅 Πρόγραμμα", "💰 Οικονομικά", "👥 Μαθητές", "⚙️ Ρυθμίσεις"])
+            if menu != st.session_state.menu_option: st.session_state.menu_option = menu; auto_collapse_sidebar(); st.rerun()
+            if st.sidebar.button("🚪 Log out"): st.session_state.clear(); st.rerun()
+        
+            if menu == "📊 Dashboard": show_dashboard()
+            elif menu == "📅 Πρόγραμμα":
+                st.header("📅 Πρόγραμμα")
+                pend = st.session_state.df_l[st.session_state.df_l['Κατάσταση'] == "Προγραμματισμένο"].copy()
+                if pend.empty: st.success("Κανένα μάθημα.")
+                else:
+                    gr_tz = ZoneInfo('Europe/Athens')
+                    now_dt = datetime.now(gr_tz)
+                    today_str = now_dt.strftime('%d/%m/%Y')
+                    tomorrow_str = (now_dt + timedelta(days=1)).strftime('%d/%m/%Y')
+                    current_hour = now_dt.hour
+                    greeting = "Καλή συνέχεια!" if current_hour >= 13 else "Καλή σας ημέρα!"
+        
+                    pend['temp_sort_dt'] = pd.to_datetime(pend['Ημερομηνία'] + " " + pend['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
+                    pend = pend.sort_values('temp_sort_dt', ascending=True).drop(columns=['temp_sort_dt'])
+                    
+                    for i, r in pend.iterrows():
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns([3, 4, 2])
+                            c1.write(f"**{r['Μαθητής']}**")
+                            c2.write(f"{r['Ημερομηνία']} | {r['Ώρα']} - {r['Λήξη']}")
+                            
+                            s_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
+                            if not s_match.empty:
+                                if r['Ημερομηνία'] == today_str:
+                                    day_label = "το σημερινό μας μάθημα"
+                                elif r['Ημερομηνία'] == tomorrow_str:
+                                    day_label = "το αυριανό μας μάθημα"
+                                else:
+                                    day_label = f"το μάθημά μας στις {r['Ημερομηνία']}"
+                                
+                                sms_text = f"Υπενθυμίζω {day_label} στις {r['Ώρα']}. {greeting}"
+                                encoded_sms = urllib.parse.quote(sms_text)
+                                c3.link_button("📱 SMS", f"sms:{s_match.iloc[0]['Τηλέφωνο']}?body={encoded_sms}")
+        
+            elif menu == "💰 Οικονομικά": show_finance_section()
+            elif menu == "👥 Μαθητές": show_student_management()
+            elif menu == "⚙️ Ρυθμίσεις": show_settings()
+        
+        if __name__ == "__main__": main()
