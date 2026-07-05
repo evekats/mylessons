@@ -342,13 +342,17 @@ def show_finance_section():
             unpaid['temp_dt'] = pd.to_datetime(unpaid['Ημερομηνία'] + " " + unpaid['Ώρα'], format="%d/%m/%Y %H:%M", errors='coerce')
             unpaid = unpaid.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
             for i, r in unpaid.iterrows():
-                c1, c2, c3, c4 = st.columns([3, 1.5, 1.2, 1.5])
+                # Κρατάμε μόνο 2 στήλες: μία για τα στοιχεία και μία για τις ενέργειες
+                c1, c2 = st.columns([3, 1])
+                
                 try:
                     t1 = datetime.strptime(r['Ώρα'], '%H:%M')
                     t2 = datetime.strptime(r['Λήξη'], '%H:%M')
                     current_hours = (t2 - t1).seconds / 3600
                 except: current_hours = 1.0
-                c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']}")
+                
+                c1.write(f"**{r['Μαθητής']}**\n{r['Ημερομηνία']} | {r['Ώρα']}-{r['Λήξη']} | **{r['Ποσό']:.1f}€**")
+                
                 if st.session_state.get(f"edit_{i}"):
                     new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}", label_visibility="collapsed")
                     if c2.button("💾", key=f"sv_{i}"):
@@ -361,21 +365,12 @@ def show_finance_section():
                         st.session_state[f"edit_{i}"] = False
                         save_all(); st.rerun()
                 else:
-                    col_price, col_edit = c2.columns([2, 1])
-                    col_price.write(f"**{r['Ποσό']:.1f}€**")
+                    # Εδώ έχουμε το μολυβάκι για επεξεργασία και το ✖️ για διαγραφή
+                    col_edit, col_del = c2.columns(2)
                     if col_edit.button("✏️", key=f"ed_{i}"): st.session_state[f"edit_{i}"] = True; st.rerun()
-                pay_val = c3.number_input("€", min_value=0.0, value=float(r['Ποσό']), key=f"p_{i}", format="%.2f", label_visibility="collapsed")
-                b1, b2 = c4.columns(2)
-                if b1.button("✔️", key=f"ok_{i}"):
-                    diff = round(float(pay_val) - float(r['Ποσό']), 2)
-                    st.session_state.df_l.at[i, 'Πληρώθηκε'] = "Ναι"
-                    if diff != 0:
-                        adj = pd.DataFrame([[r['Μαθητής'], r['Ημερομηνία'], "00:00", "00:00", -diff, "Ολοκληρώθηκε", "Όχι", f"adj_{datetime.now().timestamp()}"]], columns=st.session_state.df_l.columns)
-                        st.session_state.df_l = pd.concat([st.session_state.df_l, adj], ignore_index=True)
-                    save_all(); st.rerun()
-                if b2.button("✖️", key=f"no_{i}", help="Δεν πραγματοποιήθηκε"):
-                    st.session_state.df_l = st.session_state.df_l.drop(i).reset_index(drop=True)
-                    save_all(); st.rerun()
+                    if col_del.button("✖️", key=f"no_{i}", help="Δεν πραγματοποιήθηκε"):
+                        st.session_state.df_l = st.session_state.df_l.drop(i).reset_index(drop=True)
+                        save_all(); st.rerun()
 
     with tab_r:
         gr_tz = ZoneInfo('Europe/Athens')
