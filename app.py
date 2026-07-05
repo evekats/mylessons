@@ -497,7 +497,13 @@ def show_student_management():
 
                 # Υπολογισμός του νέου δυναμικού υπολοίπου
                 unpaid_sum = st.session_state.df_l[unpaid_mask]['Ποσό'].sum()
-                current_credit = float(student_row.get('Πιστωτικό', 0.0)) if 'Πιστωτικό' in student_row else 0.0
+                
+                # ΔΙΟΡΘΩΣΗ: Αντικατάσταση του .get()
+                if 'Πιστωτικό' in student_row.index:
+                    current_credit = float(student_row['Πιστωτικό'])
+                else:
+                    current_credit = 0.0
+                
                 actual_balance = round(unpaid_sum - current_credit, 2)
 
                 st.metric("Υπόλοιπο (Ολοκληρωμένα Μόνο)", f"{actual_balance}€")
