@@ -540,7 +540,7 @@ def show_student_management():
                             
                             if remaining_money > 0:
                             # Εδώ ξεκινάει η εσοχή για το if
-                            if 'Πιστωτικό' not in st.session_state.df_s.columns:
+                                if 'Πιστωτικό' not in st.session_state.df_s.columns:
                                 st.session_state.df_s['Πιστωτικό'] = 0.0
                                 old_credit = 0.0
                             else:
