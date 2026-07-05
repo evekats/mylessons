@@ -539,7 +539,17 @@ def show_student_management():
                                     break
                             
                             if remaining_money > 0:
-                                old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό']) if 'Πιστωτικό' in st.session_state.df_s.columns else 0.0
+                               # ΤΟ ΝΕΟ, ΑΣΦΑΛΕΣ ΚΟΜΜΑΤΙ
+if 'Πιστωτικό' not in st.session_state.df_s.columns:
+    st.session_state.df_s['Πιστωτικό'] = 0.0
+    old_credit = 0.0
+else:
+    val = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
+    # Ελέγχουμε αν είναι αριθμός, αλλιώς βάζουμε 0.0
+    try:
+        old_credit = float(val) if (pd.notna(val) and str(val).strip() != "") else 0.0
+    except (ValueError, TypeError):
+        old_credit = 0.0
                                 st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + remaining_money, 2)
                             
                             save_all()
