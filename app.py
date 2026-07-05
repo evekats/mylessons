@@ -484,7 +484,54 @@ def show_student_management():
         with t1:
             unpaid_df = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == sel) & (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")]
             # Υπολογισμός του νέου δυναμικού υπολοίπου
-unpaid_sum = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == student_name) & (st.session_state.df_l['Πληρωμένο'] == 'Όχι')]['Τιμή'].sum()
+# Δικλείδα ασφαλείας: Ελέγχουμε αν ο πίνακας df_l έχει φορτωθεί στη μνήμη
+if 'df_l' in st.session_state:
+    
+    # Υπολογισμός του νέου δυναμικού υπολοίπου
+    unpaid_sum = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == student_name) & (st.session_state.df_l['Πληρωμένο'] == 'Όχι')]['Τιμή'].sum()
+    current_credit = float(student_row.get('Πιστωτικό', 0.0)) if 'Πιστωτικό' in student_row else 0.0
+    actual_balance = round(unpaid_sum - current_credit, 2)
+
+    st.metric("Υπόλοιπο", f"{actual_balance}€")
+    
+    # Σχεδιάζουμε 3 στήλες για τα κουμπιά
+    col1, col2, col3 = st.columns([1, 1.2, 1.2])
+
+    with col1:
+        if st.button("Εξόφληση όλων", key=f"pay_all_{student_name}"):
+            st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == student_name) & (st.session_state.df_l['Πληρωμένο'] == 'Όχι'), 'Πληρωμένο'] = 'Ναι'
+            st.session_state.df_s.loc[st.session_state.df_s['Όνομα'] == student_name, 'Πιστωτικό'] = 0.0
+            save_all()
+            st.rerun()
+
+    with col2:
+        custom_amount = st.number_input("Ποσό Πληρωμής (€)", min_value=0.0, step=5.0, key=f"amt_in_{student_name}")
+
+    with col3:
+        if st.button("Εξόφληση Χ ποσού", key=f"pay_x_{student_name}"):
+            if custom_amount > 0:
+                student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == student_name].index[0]
+                
+                unpaid_lessons = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == student_name) & (st.session_state.df_l['Πληρωμένο'] == 'Όχι')].sort_values(by='Ημερομηνία')
+                
+                remaining_money = custom_amount
+                for idx, row in unpaid_lessons.iterrows():
+                    lesson_price = float(row['Τιμή'])
+                    if remaining_money >= lesson_price:
+                        st.session_state.df_l.at[idx, 'Πληρωμένο'] = 'Ναι'
+                        remaining_money -= lesson_price
+                    else:
+                        break
+                
+                if remaining_money > 0:
+                    old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό']) if 'Πιστωτικό' in st.session_state.df_s.columns else 0.0
+                    st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + remaining_money, 2)
+                
+                save_all()
+                st.rerun()
+else:
+    # Τι θα δείχνει αν δεν έχει προλάβει να φορτώσει τα δεδομένα
+    st.warning("Γίνεται φόρτωση των δεδομένων...")
 current_credit = float(student_row.get('Πιστωτικό', 0.0)) if 'Πιστωτικό' in student_row else 0.0
 actual_balance = round(unpaid_sum - current_credit, 2)
 
