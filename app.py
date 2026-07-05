@@ -498,13 +498,19 @@ def show_student_management():
                 # Υπολογισμός του νέου δυναμικού υπολοίπου
                 unpaid_sum = st.session_state.df_l[unpaid_mask]['Ποσό'].sum()
                 
-                # ΔΙΟΡΘΩΣΗ: Αντικατάσταση του .get()
-                if 'Πιστωτικό' in student_row.index:
-                    current_credit = float(student_row['Πιστωτικό'])
-                else:
+                # ΑΣΦΑΛΗΣ ΥΠΟΛΟΓΙΣΜΟΣ ΠΙΣΤΩΤΙΚΟΥ
+                raw_credit = student_row.get('Πιστωτικό', 0.0)
+                try:
+                    # Αν είναι κενό (NaN) ή None, βάζουμε 0.0, αλλιώς μετατρέπουμε σε float
+                    if pd.isna(raw_credit) or str(raw_credit).strip() == "":
+                        current_credit = 0.0
+                    else:
+                        current_credit = float(raw_credit)
+                except (ValueError, TypeError):
+                    # Αν υπάρχει κείμενο ή λάθος δεδομένα, βάζουμε 0.0
                     current_credit = 0.0
                 
-                actual_balance = round(unpaid_sum - current_credit, 2)
+                actual_balance = round(float(unpaid_sum) - float(current_credit), 2)
 
                 st.metric("Υπόλοιπο (Ολοκληρωμένα Μόνο)", f"{actual_balance}€")
                 
