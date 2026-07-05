@@ -531,51 +531,7 @@ def show_student_management():
                             st.rerun()
             else:
                 st.warning("Γίνεται φόρτωση των δεδομένων...")
-current_credit = float(student_row.get('Πιστωτικό', 0.0)) if 'Πιστωτικό' in student_row else 0.0
-actual_balance = round(unpaid_sum - current_credit, 2)
 
-st.metric("Υπόλοιπο", f"{actual_balance}€")
-            # Σχεδιάζουμε 3 στήλες για να κάθονται όμορφα στην οθόνη
-col1, col2, col3 = st.columns([1, 1.2, 1.2])
-
-with col1:
-    if st.button("Εξόφληση όλων", key=f"pay_all_{student_name}"):
-        # Γυρίζει όλα σε πληρωμένα και μηδενίζει τυχόν πιστωτικά
-        st.session_state.df_l.loc[(st.session_state.df_l['Μαθητής'] == student_name) & (st.session_state.df_l['Πληρωμένο'] == 'Όχι'), 'Πληρωμένο'] = 'Ναι'
-        st.session_state.df_s.loc[st.session_state.df_s['Όνομα'] == student_name, 'Πιστωτικό'] = 0.0
-        save_all()
-        st.rerun()
-
-with col2:
-    custom_amount = st.number_input("Ποσό Πληρωμής (€)", min_value=0.0, step=5.0, key=f"amt_in_{student_name}")
-
-with col3:
-    if st.button("Εξόφληση Χ ποσού", key=f"pay_x_{student_name}"):
-        if custom_amount > 0:
-            student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == student_name].index[0]
-
-            # 1. Βρίσκουμε τα τρέχοντα απλήρωτα μαθήματα από το παλαιότερο στο νεότερο
-            unpaid_lessons = st.session_state.df_l[(st.session_state.df_l['Μαθητής'] == student_name) & (st.session_state.df_l['Πληρωμένο'] == 'Όχι')].sort_values(by='Ημερομηνία')
-
-            # 2. Μοιράζουμε το ποσό στα υπάρχοντα μαθήματα
-            remaining_money = custom_amount
-            for idx, row in unpaid_lessons.iterrows():
-                lesson_price = float(row['Τιμή'])
-                if remaining_money >= lesson_price:
-                    st.session_state.df_l.at[idx, 'Πληρωμένο'] = 'Ναι'
-                    remaining_money -= lesson_price
-                else:
-                    # Αν δεν φτάνει να καλύψει όλο το μάθημα, σταματάμε τη μοιρασιά
-                    break
-
-            # 3. Αν περίσσεψαν χρήματα (έναντι), τα προσθέτουμε στο Πιστωτικό του μαθητή
-            if remaining_money > 0:
-                old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό']) if 'Πιστωτικό' in st.session_state.df_s.columns else 0.0
-                st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + remaining_money, 2)
-
-            save_all()
-            st.rerun()
-        
         with t2:
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις Μαθήματος")
