@@ -594,19 +594,21 @@ def show_student_management():
             st.divider()
             st.subheader("📜 Ιστορικό Μαθημάτων & Πληρωμών")
             
-            # Φίλτρο για να εμφανίζονται τα Ολοκληρωμένα μαθήματα Ή όσα έχουν εξοφληθεί
-            history_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
-                           ((st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε') | \
-                            (st.session_state.df_l['Πληρώθηκε'] == 'Ναι'))
+            # Εμφάνιση του τρέχοντος πιστωτικού υπόλοιπου (Έναντι)[cite: 1]
+            student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
+            current_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
+            st.info(f"Τρέχον Πιστωτικό (Έναντι): {current_credit:.2f} €")
             
+            # Φιλτράρισμα όλων των μαθημάτων του μαθητή[cite: 1]
+            history_mask = (st.session_state.df_l['Μαθητής'] == sel)
             student_history = st.session_state.df_l[history_mask].copy()
             
             if not student_history.empty:
+                # Ταξινόμηση ώστε τα πιο πρόσφατα να είναι πάνω[cite: 1]
                 student_history = student_history.sort_values(by='Ημερομηνία', ascending=False)
-                # Χρησιμοποιούμε μόνο τις στήλες που υπάρχουν στον πίνακα df_l[cite: 1]
                 st.dataframe(student_history[['Ημερομηνία', 'Ώρα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], use_container_width=True)
             else:
-                st.info("Δεν υπάρχει ιστορικό μαθημάτων ή πληρωμών.")
+                st.info("Δεν υπάρχει ιστορικό μαθημάτων για αυτόν τον μαθητή.")
         with t3:
             hist = st.session_state.df_l[
                 (st.session_state.df_l['Μαθητής'] == sel) & 
