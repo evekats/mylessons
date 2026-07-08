@@ -335,9 +335,9 @@ def show_finance_section():
                         ts, te = (t_m.split("-")[0].strip(), t_m.split("-")[1].strip()) if "-" in t_m else (t_m, t_m)
                         new_l = pd.DataFrame([[sel_m, d_m, ts, te, float(p_m), "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
-auto_apply_credits() # <--- ΠΡΟΣΘΗΚΗ ΕΔΩ
-save_all()
-st.rerun()
+                        auto_apply_credits() # <--- ΠΡΟΣΘΗΚΗ ΕΔΩ
+                        save_all()
+                        st.rerun()
         st.divider()
         unpaid = st.session_state.df_l[(st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")].copy()
         if unpaid.empty: st.success("Όλα εξοφλημένα!")
