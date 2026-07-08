@@ -592,8 +592,25 @@ def show_student_management():
             
             if not history.empty:
                 history = history.sort_values(by='Ημερομηνία', ascending=False)
+                
+                # Δημιουργία της στήλης Ώρα/Περιγραφή
+                # Αν είναι πληρωμή (π.χ. UID ξεκινά από 'pay_'), βάζουμε "Είσπραξη"
+                # Αλλιώς βάζουμε το εύρος της ώρας
+                history['Περιγραφή'] = history.apply(
+                    lambda x: "Είσπραξη" if str(x['UID']).startswith('pay_') else f"{x['Ώρα']} - {x['Λήξη']}", 
+                    axis=1
+                )
+                
+                # Δημιουργία της στήλης για τον Τύπο (Εξόφληση ή Μάθημα)
+                history['Τύπος'] = history.apply(
+                    lambda x: "Είσπραξη" if str(x['UID']).startswith('pay_') else "Εξόφληση Μαθήματος", 
+                    axis=1
+                )
+                
+                # Επιλογή και μετονομασία στηλών για τον πίνακα
+                display_df = history[['Ημερομηνία', 'Τύπος', 'Περιγραφή', 'Ποσό']]
                 st.dataframe(
-                    history[['Ημερομηνία', 'Ώρα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], 
+                    display_df.rename(columns={'Περιγραφή': 'Ώρα/Τύπος', 'Τύπος': 'Ενέργεια'}), 
                     use_container_width=True
                 )
             else:
