@@ -494,7 +494,7 @@ def show_student_management():
         with t1:
             # Δικλείδα ασφαλείας: Ελέγχουμε αν ο πίνακας df_l έχει φορτωθεί
             if 'df_l' in st.session_state:
-                
+                student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
                 # ΦΙΛΤΡΟ: Κρατάμε ΜΟΝΟ τα μαθήματα που είναι "Όχι" πληρωμένα ΚΑΙ "Ολοκληρώθηκε"
                 unpaid_mask = (
                     (st.session_state.df_l['Μαθητής'] == sel) & 
