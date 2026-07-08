@@ -14,43 +14,28 @@ import recurring_ical_events
 
 # --- 1. ΒΟΗΘΗΤΙΚΕΣ ΣΥΝΑΡΤΗΣΕΙΣ & ΡΥΘΜΙΣΕΙΣ ---
 def auto_apply_credits():
-    # Σιγουρευόμαστε ότι υπάρχει η στήλη 'Πιστωτικό' στους μαθητές, αν όχι τη φτιάχνουμε με 0.0
     if 'Πιστωτικό' not in st.session_state.df_s.columns:
         st.session_state.df_s['Πιστωτικό'] = 0.0
-        
+    
+    unpaid_mask = (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
+    
     for idx, student in st.session_state.df_s.iterrows():
         student_name = student['Όνομα']
-        try:
-            credit = float(student.get('Πιστωτικό', 0.0))
-            if pd.isna(credit): credit = 0.0
-        except:
-            credit = 0.0
+        balance = float(student.get('Πιστωτικό', 0.0))
         
-        # Αν ο μαθητής έχει αφήσει έναντι (πιστωτικό > 0)
-        if credit > 0:
-            # Διόρθωση των στηλών: Πληρώθηκε και Ποσό
-            unpaid_mask = (
-                (st.session_state.df_l['Μαθητής'] == student_name) & 
-                (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & 
-                (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
-            )
-            unpaid_lessons = st.session_state.df_l[unpaid_mask].sort_values(by='Ημερομηνία')
+        if balance < 0:
+            student_unpaid_indices = st.session_state.df_l[
+                (st.session_state.df_l['Μαθητής'] == student_name) & unpaid_mask
+            ].index
             
-            for l_idx, lesson in unpaid_lessons.iterrows():
-                try:
-                    lesson_price = float(lesson['Ποσό'])
-                except:
-                    lesson_price = 0.0
-                    
-                if credit >= lesson_price and lesson_price > 0:
-                    # Το πιστωτικό (έναντι) καλύπτει όλο το μάθημα, οπότε πληρώνεται αυτόματα
+            for l_idx in student_unpaid_indices:
+                lesson_cost = float(st.session_state.df_l.at[l_idx, 'Ποσό'])
+                if balance + lesson_cost <= 0:
+                    balance += lesson_cost
                     st.session_state.df_l.at[l_idx, 'Πληρώθηκε'] = 'Ναι'
-                    credit -= lesson_price
-                    st.session_state.df_s.at[idx, 'Πιστωτικό'] = round(credit, 2)
                 else:
-                    # Αν το πιστωτικό δεν φτάνει για ολόκληρο το μάθημα, σταματάμε
                     break
-
+            st.session_state.df_s.at[idx, 'Πιστωτικό'] = round(balance, 2)
 def auto_collapse_sidebar():
     components.html(
         """
@@ -276,9 +261,10 @@ def auto_sync():
         if new_lessons:
             new_df = pd.DataFrame(new_lessons, columns=st.session_state.df_l.columns)
             st.session_state.df_l = pd.concat([st.session_state.df_l, new_df], ignore_index=True)
-        
+    
         # Αφαίρεση τυχόν διπλοεγγραφών για σιγουριά
         st.session_state.df_l = st.session_state.df_l.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
+        auto_apply_credits()
         save_all()
     except Exception as e:
         st.error(f"Σφάλμα συγχρονισμού: {e}")
@@ -349,7 +335,9 @@ def show_finance_section():
                         ts, te = (t_m.split("-")[0].strip(), t_m.split("-")[1].strip()) if "-" in t_m else (t_m, t_m)
                         new_l = pd.DataFrame([[sel_m, d_m, ts, te, float(p_m), "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
-                        save_all(); st.rerun()
+auto_apply_credits() # <--- ΠΡΟΣΘΗΚΗ ΕΔΩ
+save_all()
+st.rerun()
         st.divider()
         unpaid = st.session_state.df_l[(st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε") & (st.session_state.df_l['Πληρώθηκε'] == "Όχι")].copy()
         if unpaid.empty: st.success("Όλα εξοφλημένα!")
