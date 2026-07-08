@@ -493,6 +493,7 @@ def show_student_management():
         
         with t1:
             if 'df_l' in st.session_state:
+                student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
                 # 1. ΒΕΒΑΙΩΣΗ ΟΤΙ Ο ΜΑΘΗΤΗΣ ΕΧΕΙ ΠΙΣΤΩΤΙΚΟ
                 if 'Πιστωτικό' not in st.session_state.df_s.columns:
                     st.session_state.df_s['Πιστωτικό'] = 0.0
