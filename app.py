@@ -576,43 +576,37 @@ def show_student_management():
                         st.markdown(f"**📅 {nr['Ημερομηνία']}**")
                         st.write(nr['Σημειώσεις'])
         with t3:
-            st.subheader("📜 Ιστορικό Μαθημάτων & Πληρωμών")
+            st.subheader("📜 Ιστορικό Μαθητή")
             
             # Εμφάνιση Πιστωτικού
             student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
             current_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
             st.info(f"Τρέχον Πιστωτικό (Έναντι): {current_credit:.2f} €")
-            
-            # ΔΙΑΒΑΖΟΥΜΕ ΟΛΑ ΤΑ ΔΕΔΟΜΕΝΑ ΤΟΥ ΜΑΘΗΤΗ ΧΩΡΙΣ ΦΙΛΤΡΑ
-            history = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].copy()
-            
-            if not history.empty:
-                # Ταξινόμηση ώστε τα πιο πρόσφατα να είναι πάνω
-                history = history.sort_values(by='Ημερομηνία', ascending=False)
-                
-                # Ορίζουμε την εμφάνιση για κάθε γραμμή
-                def get_details(row):
-                    # Αν είναι πληρωμή (ξεκινάει με pay_), γράφουμε "Είσπραξη"
-                    if str(row['UID']).startswith('pay_'):
-                        return "Είσπραξη"
-                    # Αν είναι μάθημα, γράφουμε την ώρα
-                    return f"{row['Ώρα']} - {row['Λήξη']}"
 
-                def get_action(row):
-                    if str(row['UID']).startswith('pay_'):
-                        return "Είσπραξη"
-                    return "Εξόφληση Μαθήματος"
-                
-                history['Λεπτομέρειες'] = history.apply(get_details, axis=1)
-                history['Ενέργεια'] = history.apply(get_action, axis=1)
-                
-                # Εμφάνιση πίνακα με τις στήλες που ζήτησες
-                st.dataframe(
-                    history[['Ημερομηνία', 'Ενέργεια', 'Λεπτομέρειες', 'Ποσό']], 
-                    use_container_width=True
-                )
-            else:
-                st.info("Δεν υπάρχει ιστορικό για αυτόν τον μαθητή.")
+            # Εδώ δημιουργούνται οι δύο καρτέλες
+            tab_lessons, tab_payments = st.tabs(["✅ Ολοκληρωμένα Μαθήματα", "💰 Καταχωρίσεις Πληρωμών"])
+
+            # Παίρνουμε όλα τα δεδομένα του μαθητή από το df_l
+            full_df = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].copy()
+            full_df = full_df.sort_values(by='Ημερομηνία', ascending=False)
+
+            # Καρτέλα 1: Ολοκληρωμένα Μαθήματα
+            with tab_lessons:
+                lessons = full_df[full_df['Κατάσταση'] == 'Ολοκληρωθηκε'].copy()
+                if not lessons.empty:
+                    lessons['Ώρα_Μαθήματος'] = lessons['Ώρα'] + " - " + lessons['Λήξη']
+                    st.dataframe(lessons[['Ημερομηνία', 'Ώρα_Μαθήματος', 'Ποσό']], use_container_width=True)
+                else:
+                    st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα.")
+
+            # Καρτέλα 2: Καταχωρίσεις Πληρωμών
+            with tab_payments:
+                # Εδώ φιλτράρουμε τις εγγραφές που είναι πληρωμές (ξεκινάνε με 'pay_')
+                payments = full_df[full_df['UID'].astype(str).str.startswith('pay_')].copy()
+                if not payments.empty:
+                    st.dataframe(payments[['Ημερομηνία', 'Ποσό']], use_container_width=True)
+                else:
+                    st.info("Δεν έχουν καταχωρηθεί πληρωμές.")
 def show_settings():
     st.header("⚙️ Ρυθμίσεις")
     with st.expander("🔗 iCloud & Password"):
