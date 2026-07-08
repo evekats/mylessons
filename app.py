@@ -584,18 +584,19 @@ def show_student_management():
             # --- ΙΣΤΟΡΙΚΟ ΜΑΘΗΜΑΤΩΝ & ΠΛΗΡΩΜΩΝ ---
             st.subheader("📜 Ιστορικό Μαθημάτων & Πληρωμών")
             
-            # Εμφάνιση πιστωτικού για ενημέρωση
+            # Εμφάνιση του τρέχοντος πιστωτικού υπόλοιπου
             student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
             current_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
             st.info(f"Τρέχον Πιστωτικό (Έναντι): {current_credit:.2f} €")
             
-            # Φιλτράρισμα: Εμφανίζουμε όλα τα δεδομένα του μαθητή από το df_l
-            # Όταν προσθέσεις μια πληρωμή ως γραμμή στο df_l, θα εμφανίζεται εδώ αυτόματα!
+            # ΑΦΑΙΡΕΣΑΜΕ ΤΟ ΦΙΛΤΡΟ: Εμφανίζουμε όλο το ιστορικό για τον μαθητή
             history = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].copy()
             
             if not history.empty:
+                # Ταξινόμηση ώστε τα πιο πρόσφατα να είναι πάνω[cite: 1]
                 history = history.sort_values(by='Ημερομηνία', ascending=False)
-                # Εμφάνιση πίνακα
+                
+                # Εμφάνιση του πίνακα[cite: 1]
                 st.dataframe(
                     history[['Ημερομηνία', 'Ώρα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], 
                     use_container_width=True
