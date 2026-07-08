@@ -583,20 +583,21 @@ def show_student_management():
             current_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
             st.info(f"Τρέχον Πιστωτικό (Έναντι): {current_credit:.2f} €")
             
-            # Φιλτράρισμα: Μόνο Ολοκληρωμένα Μαθήματα ή Πληρωμές
-            history_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
-                           ((st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε') | \
-                            (st.session_state.df_l['Πληρώθηκε'] == 'Ναι'))
-            
-            history = st.session_state.df_l[history_mask].copy()
+            # ΔΙΟΡΘΩΜΕΝΟ ΦΙΛΤΡΟ: Εμφανίζει Ολοκληρωμένα Μαθήματα Ή οτιδήποτε ξεκινάει με 'pay_'
+            df = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].copy()
+            history = df[
+                (df['Κατάσταση'] == 'Ολοκληρώθηκε') | 
+                (df['Πληρώθηκε'] == 'Ναι') | 
+                (df['UID'].astype(str).str.startswith('pay_'))
+            ].copy()
             
             if not history.empty:
                 history = history.sort_values(by='Ημερομηνία', ascending=False)
                 
-                # Δημιουργία περιγραφής βάσει του αν είναι Είσπραξη ή Μάθημα
+                # Δημιουργία περιγραφής
                 def get_desc(row):
                     if str(row['UID']).startswith('pay_'):
-                        return "Είσπραξη"
+                        return "-"
                     return f"{row['Ώρα']} - {row['Λήξη']}"
 
                 def get_type(row):
@@ -607,10 +608,7 @@ def show_student_management():
                 history['Περιγραφή_Ωρας'] = history.apply(get_desc, axis=1)
                 history['Ενέργεια'] = history.apply(get_type, axis=1)
                 
-                # Επιλογή στηλών για τον πίνακα
                 display_df = history[['Ημερομηνία', 'Ενέργεια', 'Περιγραφή_Ωρας', 'Ποσό']]
-                
-                # Εμφάνιση πίνακα
                 st.dataframe(
                     display_df.rename(columns={'Περιγραφή_Ωρας': 'Ώρες / Λεπτομέρειες'}), 
                     use_container_width=True
