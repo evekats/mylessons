@@ -17,25 +17,44 @@ def auto_apply_credits():
     if 'Πιστωτικό' not in st.session_state.df_s.columns:
         st.session_state.df_s['Πιστωτικό'] = 0.0
     
-    unpaid_mask = (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
-    
     for idx, student in st.session_state.df_s.iterrows():
         student_name = student['Όνομα']
-        balance = float(student.get('Πιστωτικό', 0.0))
         
+        # Καθαρισμός του υπολοίπου για αποφυγή ValueError
+        val = student.get('Πιστωτικό', 0.0)
+        try:
+            # Μετατρέπουμε σε string, αφαιρούμε κενά και μετατρέπουμε σε float
+            balance = float(str(val).strip())
+        except (ValueError, TypeError):
+            balance = 0.0
+            st.session_state.df_s.at[idx, 'Πιστωτικό'] = 0.0
+        
+        # Αν το balance είναι < 0 (προπληρωμή)
         if balance < 0:
-            student_unpaid_indices = st.session_state.df_l[
-                (st.session_state.df_l['Μαθητής'] == student_name) & unpaid_mask
-            ].index
+            unpaid_mask = (
+                (st.session_state.df_l['Μαθητής'] == student_name) & 
+                (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & 
+                (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
+            )
+            # Παίρνουμε τα ανεξόφλητα μαθήματα
+            unpaid_lessons = st.session_state.df_l[unpaid_mask]
             
-            for l_idx in student_unpaid_indices:
-                lesson_cost = float(st.session_state.df_l.at[l_idx, 'Ποσό'])
-                if balance + lesson_cost <= 0:
-                    balance += lesson_cost
+            for l_idx, lesson in unpaid_lessons.iterrows():
+                try:
+                    lesson_price = float(lesson['Ποσό'])
+                except (ValueError, TypeError):
+                    lesson_price = 0.0
+                
+                # Αν το balance (π.χ. -20) + κόστος (10) <= 0, καλύπτεται πλήρως
+                if balance + lesson_price <= 0:
+                    balance += lesson_price
                     st.session_state.df_l.at[l_idx, 'Πληρώθηκε'] = 'Ναι'
                 else:
                     break
+            
+            # Αποθήκευση του νέου υπολοίπου
             st.session_state.df_s.at[idx, 'Πιστωτικό'] = round(balance, 2)
+
 def auto_collapse_sidebar():
     components.html(
         """
