@@ -594,17 +594,16 @@ def show_student_management():
             st.divider()
             st.subheader("📜 Ιστορικό Μαθημάτων & Πληρωμών")
             
-            # Διόρθωση: Χρησιμοποιούμε τη στήλη 'Μαθητής' αντί για 'Μάθημα' και στήλες που όντως υπάρχουν
+            # Φίλτρο για να εμφανίζονται τα Ολοκληρωμένα μαθήματα Ή όσα έχουν εξοφληθεί
             history_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
                            ((st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε') | \
-                            (st.session_state.df_l['Πληρώθηκε'] == 'Ναι') | \
-                            (st.session_state.df_l['Ποσό'] > 0))
+                            (st.session_state.df_l['Πληρώθηκε'] == 'Ναι'))
             
             student_history = st.session_state.df_l[history_mask].copy()
             
             if not student_history.empty:
                 student_history = student_history.sort_values(by='Ημερομηνία', ascending=False)
-                # Χρήση ονομάτων στηλών που όντως υπάρχουν στο df_l σου
+                # Χρησιμοποιούμε μόνο τις στήλες που υπάρχουν στον πίνακα df_l[cite: 1]
                 st.dataframe(student_history[['Ημερομηνία', 'Ώρα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], use_container_width=True)
             else:
                 st.info("Δεν υπάρχει ιστορικό μαθημάτων ή πληρωμών.")
