@@ -538,14 +538,35 @@ def show_student_management():
                 with col3:
                     if st.button("Εξόφληση Χ ποσού", key=f"pay_x_{sel}"):
                         if custom_amount > 0:
-                            # Προσθέτουμε το ποσό στο πιστωτικό
+                            # 1. Προσθήκη του νέου ποσού στο ήδη υπάρχον πιστωτικό
                             old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό'])
-                            st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + custom_amount, 2)
+                            total_available = old_credit + custom_amount
                             
-                            # Τρέχουμε τον αυτοματισμό για να "καταναλώσει" το πιστωτικό
-                            auto_apply_credits()
+                            # 2. Υπολογισμός χρεών
+                            unpaid_mask = (
+                                (st.session_state.df_l['Μαθητής'] == sel) & 
+                                (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & 
+                                (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
+                            )
+                            # Παίρνουμε τα μαθήματα που χρωστάει
+                            unpaid_lessons = st.session_state.df_l[unpaid_mask]
                             
-                            save_all(); st.success("Εξοφλήθηκε!"); st.rerun()
+                            # 3. Εξόφληση μαθημάτων με τη σειρά
+                            remaining_credit = total_available
+                            for idx, row in unpaid_lessons.iterrows():
+                                cost = row['Ποσό']
+                                if remaining_credit >= cost:
+                                    st.session_state.df_l.at[idx, 'Πληρώθηκε'] = 'Ναι'
+                                    remaining_credit -= cost
+                                else:
+                                    break # Δεν φτάνουν τα χρήματα για το επόμενο
+                            
+                            # 4. Αποθήκευση του υπολοίπου που περίσσεψε
+                            st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(remaining_credit, 2)
+                            
+                            save_all()
+                            st.success(f"Εξοφλήθηκε! Υπόλοιπο έναντι: {round(remaining_credit, 2)}€")
+                            st.rerun()
                         else:
                             st.error("Εισάγετε ποσό > 0")
             else:
