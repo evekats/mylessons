@@ -585,7 +585,7 @@ def show_student_management():
             
             # Φιλτράρισμα: Μόνο Ολοκληρωμένα Μαθήματα ή Πληρωμές
             history_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
-                           ((st.session_state.df_l['Κατάσταση'] == 'Ολοκληρωθηκε') | \
+                           ((st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε') | \
                             (st.session_state.df_l['Πληρώθηκε'] == 'Ναι'))
             
             history = st.session_state.df_l[history_mask].copy()
@@ -593,29 +593,30 @@ def show_student_management():
             if not history.empty:
                 history = history.sort_values(by='Ημερομηνία', ascending=False)
                 
-                # Δημιουργία της στήλης Ώρα/Περιγραφή
-                # Αν είναι πληρωμή (π.χ. UID ξεκινά από 'pay_'), βάζουμε "Είσπραξη"
-                # Αλλιώς βάζουμε το εύρος της ώρας
-                history['Περιγραφή'] = history.apply(
-                    lambda x: "Είσπραξη" if str(x['UID']).startswith('pay_') else f"{x['Ώρα']} - {x['Λήξη']}", 
-                    axis=1
-                )
+                # Δημιουργία περιγραφής βάσει του αν είναι Είσπραξη ή Μάθημα
+                def get_desc(row):
+                    if str(row['UID']).startswith('pay_'):
+                        return "Είσπραξη"
+                    return f"{row['Ώρα']} - {row['Λήξη']}"
+
+                def get_type(row):
+                    if str(row['UID']).startswith('pay_'):
+                        return "Είσπραξη"
+                    return "Εξόφληση Μαθήματος"
                 
-                # Δημιουργία της στήλης για τον Τύπο (Εξόφληση ή Μάθημα)
-                history['Τύπος'] = history.apply(
-                    lambda x: "Είσπραξη" if str(x['UID']).startswith('pay_') else "Εξόφληση Μαθήματος", 
-                    axis=1
-                )
+                history['Περιγραφή_Ωρας'] = history.apply(get_desc, axis=1)
+                history['Ενέργεια'] = history.apply(get_type, axis=1)
                 
-                # Επιλογή και μετονομασία στηλών για τον πίνακα
-                display_df = history[['Ημερομηνία', 'Τύπος', 'Περιγραφή', 'Ποσό']]
+                # Επιλογή στηλών για τον πίνακα
+                display_df = history[['Ημερομηνία', 'Ενέργεια', 'Περιγραφή_Ωρας', 'Ποσό']]
+                
+                # Εμφάνιση πίνακα
                 st.dataframe(
-                    display_df.rename(columns={'Περιγραφή': 'Ώρα/Τύπος', 'Τύπος': 'Ενέργεια'}), 
+                    display_df.rename(columns={'Περιγραφή_Ωρας': 'Ώρες / Λεπτομέρειες'}), 
                     use_container_width=True
                 )
             else:
                 st.info("Δεν υπάρχει ιστορικό για αυτόν τον μαθητή.")
-
 def show_settings():
     st.header("⚙️ Ρυθμίσεις")
     with st.expander("🔗 iCloud & Password"):
