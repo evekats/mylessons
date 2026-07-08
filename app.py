@@ -566,53 +566,65 @@ def show_student_management():
                         with open(f_link, "wb") as f: f.write(uploaded_file.getbuffer())
                     new_n = pd.DataFrame([[sel, datetime.now().strftime('%d/%m/%Y'), nt, f_link, ex_date.strftime('%Y-%m-%d') if ex_date else ""]], columns=st.session_state.df_n.columns)
                     st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True)
-                    save_all(); st.rerun()
+                    save_all()
+                    st.rerun()
             
             st.subheader("Ιστορικό Σημειώσεων")
             student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
-            if not student_notes.empty:
+            
+            if student_notes.empty:
+                st.info("Δεν υπάρχουν σημειώσεις.")
+            else:
                 for idx, nr in student_notes.iterrows():
                     with st.container(border=True):
-                        st.markdown(f"**📅 {nr['Ημερομηνία']}**")
+                        c1, c2 = st.columns([0.85, 0.15])
+                        c1.markdown(f"**📅 {nr['Ημερομηνία']}**")
+                        if nr['Διαγωνίσματα']:
+                            try:
+                                formatted_exam = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d').strftime('%d/%m/%Y')
+                                c1.error(f"🚨 Διαγώνισμα: {formatted_exam}")
+                            except: pass
                         st.write(nr['Σημειώσεις'])
-        with t3:
+                        if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
+                        if c2.button("🗑️", key=f"dn_{idx}"):
+                            st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
+                            save_all()
+                            st.rerun()
+
+            st.divider()
             st.subheader("📜 Ιστορικό Μαθημάτων & Πληρωμών")
             
-            # Εμφάνιση Πιστωτικού
-            student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
-            current_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
-            st.info(f"Τρέχον Πιστωτικό (Έναντι): {current_credit:.2f} €")
+            # Φίλτρο για να εμφανίζονται τα Ολοκληρωμένα μαθήματα Ή όσα έχουν εξοφληθεί
+            history_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
+                           ((st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε') | \
+                            (st.session_state.df_l['Πληρώθηκε'] == 'Ναι'))
             
-            # ΔΙΑΒΑΖΟΥΜΕ ΟΛΑ ΤΑ ΔΕΔΟΜΕΝΑ ΤΟΥ ΜΑΘΗΤΗ ΧΩΡΙΣ ΦΙΛΤΡΑ
-            history = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].copy()
+            student_history = st.session_state.df_l[history_mask].copy()
             
-            if not history.empty:
-                # Ταξινόμηση ώστε τα πιο πρόσφατα να είναι πάνω
-                history = history.sort_values(by='Ημερομηνία', ascending=False)
-                
-                # Ορίζουμε την εμφάνιση για κάθε γραμμή
-                def get_details(row):
-                    # Αν είναι πληρωμή (ξεκινάει με pay_), γράφουμε "Είσπραξη"
-                    if str(row['UID']).startswith('pay_'):
-                        return "Είσπραξη"
-                    # Αν είναι μάθημα, γράφουμε την ώρα
-                    return f"{row['Ώρα']} - {row['Λήξη']}"
-
-                def get_action(row):
-                    if str(row['UID']).startswith('pay_'):
-                        return "Είσπραξη"
-                    return "Εξόφληση Μαθήματος"
-                
-                history['Λεπτομέρειες'] = history.apply(get_details, axis=1)
-                history['Ενέργεια'] = history.apply(get_action, axis=1)
-                
-                # Εμφάνιση πίνακα με τις στήλες που ζήτησες
-                st.dataframe(
-                    history[['Ημερομηνία', 'Ενέργεια', 'Λεπτομέρειες', 'Ποσό']], 
-                    use_container_width=True
-                )
+            if not student_history.empty:
+                student_history = student_history.sort_values(by='Ημερομηνία', ascending=False)
+                # Χρησιμοποιούμε μόνο τις στήλες που υπάρχουν στον πίνακα df_l[cite: 1]
+                st.dataframe(student_history[['Ημερομηνία', 'Ώρα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], use_container_width=True)
             else:
-                st.info("Δεν υπάρχει ιστορικό για αυτόν τον μαθητή.")
+                st.info("Δεν υπάρχει ιστορικό μαθημάτων ή πληρωμών.")
+        with t3:
+            hist = st.session_state.df_l[
+                (st.session_state.df_l['Μαθητής'] == sel) & 
+                (st.session_state.df_l['Κατάσταση'] == "Ολοκληρώθηκε")
+            ].copy()
+            if hist.empty:
+                st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα.")
+            else:
+                hist['temp_dt'] = pd.to_datetime(hist['Ημερομηνία'], format="%d/%m/%Y", errors='coerce')
+                hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
+                for idx, hr in hist.iterrows():
+                    hc1, hc2 = st.columns([9, 1])
+                    icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
+                    hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
+                    if hc2.button("🗑️", key=f"del_hist_{idx}"):
+                        st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
+                        save_all(); st.rerun()
+
 def show_settings():
     st.header("⚙️ Ρυθμίσεις")
     with st.expander("🔗 iCloud & Password"):
