@@ -583,34 +583,32 @@ def show_student_management():
             current_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
             st.info(f"Τρέχον Πιστωτικό (Έναντι): {current_credit:.2f} €")
             
-            # ΔΙΟΡΘΩΜΕΝΟ ΦΙΛΤΡΟ: Εμφανίζει Ολοκληρωμένα Μαθήματα Ή οτιδήποτε ξεκινάει με 'pay_'
-            df = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].copy()
-            history = df[
-                (df['Κατάσταση'] == 'Ολοκληρώθηκε') | 
-                (df['Πληρώθηκε'] == 'Ναι') | 
-                (df['UID'].astype(str).str.startswith('pay_'))
-            ].copy()
+            # ΔΙΑΒΑΖΟΥΜΕ ΟΛΑ ΤΑ ΔΕΔΟΜΕΝΑ ΤΟΥ ΜΑΘΗΤΗ ΧΩΡΙΣ ΦΙΛΤΡΑ
+            history = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].copy()
             
             if not history.empty:
+                # Ταξινόμηση ώστε τα πιο πρόσφατα να είναι πάνω
                 history = history.sort_values(by='Ημερομηνία', ascending=False)
                 
-                # Δημιουργία περιγραφής
-                def get_desc(row):
+                # Ορίζουμε την εμφάνιση για κάθε γραμμή
+                def get_details(row):
+                    # Αν είναι πληρωμή (ξεκινάει με pay_), γράφουμε "Είσπραξη"
                     if str(row['UID']).startswith('pay_'):
-                        return "-"
+                        return "Είσπραξη"
+                    # Αν είναι μάθημα, γράφουμε την ώρα
                     return f"{row['Ώρα']} - {row['Λήξη']}"
 
-                def get_type(row):
+                def get_action(row):
                     if str(row['UID']).startswith('pay_'):
                         return "Είσπραξη"
                     return "Εξόφληση Μαθήματος"
                 
-                history['Περιγραφή_Ωρας'] = history.apply(get_desc, axis=1)
-                history['Ενέργεια'] = history.apply(get_type, axis=1)
+                history['Λεπτομέρειες'] = history.apply(get_details, axis=1)
+                history['Ενέργεια'] = history.apply(get_action, axis=1)
                 
-                display_df = history[['Ημερομηνία', 'Ενέργεια', 'Περιγραφή_Ωρας', 'Ποσό']]
+                # Εμφάνιση πίνακα με τις στήλες που ζήτησες
                 st.dataframe(
-                    display_df.rename(columns={'Περιγραφή_Ωρας': 'Ώρες / Λεπτομέρειες'}), 
+                    history[['Ημερομηνία', 'Ενέργεια', 'Λεπτομέρειες', 'Ποσό']], 
                     use_container_width=True
                 )
             else:
