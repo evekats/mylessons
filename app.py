@@ -492,83 +492,51 @@ def show_student_management():
         t1, t2, t3 = st.tabs(["💰 Οικονομικά", "📝 Σημειώσεις", "📜 Ιστορικό"])
         
         with t1:
-            # Δικλείδα ασφαλείας: Ελέγχουμε αν ο πίνακας df_l έχει φορτωθεί
             if 'df_l' in st.session_state:
                 student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
                 
-                # ΦΙΛΤΡΟ: Κρατάμε ΜΟΝΟ τα μαθήματα που είναι "Όχι" πληρωμένα ΚΑΙ "Ολοκληρώθηκε"
+                # 1. ΑΥΤΟΜΑΤΗ ΕΞΟΦΛΗΣΗ (Η "ΑΠΟΘΗΚΗ" ΧΡΗΜΑΤΩΝ)
+                # Ελέγχουμε αν υπάρχει πιστωτικό και αν υπάρχουν απλήρωτα ολοκληρωμένα μαθήματα
+                raw_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό']) if 'Πιστωτικό' in st.session_state.df_s.columns else 0.0
+                
                 unpaid_mask = (
                     (st.session_state.df_l['Μαθητής'] == sel) & 
                     (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & 
                     (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
                 )
+                
+                if raw_credit > 0 and unpaid_mask.any():
+                    remaining_credit = raw_credit
+                    for idx, row in st.session_state.df_l[unpaid_mask].iterrows():
+                        if remaining_credit >= row['Ποσό']:
+                            st.session_state.df_l.at[idx, 'Πληρώθηκε'] = 'Ναι'
+                            remaining_credit -= row['Ποσό']
+                        else:
+                            break
+                    st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(remaining_credit, 2)
+                    save_all() # Αποθήκευση της νέας κατάστασης
 
-                # Υπολογισμός του συνόλου οφειλών
-                unpaid_sum = st.session_state.df_l[unpaid_mask]['Ποσό'].sum()
+                # 2. ΥΠΟΛΟΓΙΣΜΟΣ ΚΑΙ ΕΜΦΑΝΙΣΗ (ΕΝΙΑΙΑ)
+                new_unpaid_sum = st.session_state.df_l[unpaid_mask]['Ποσό'].sum()
+                final_balance = max(0, new_unpaid_sum - float(st.session_state.df_s.at[student_idx, 'Πιστωτικό']))
                 
-                # ΑΣΦΑΛΗΣ ΥΠΟΛΟΓΙΣΜΟΣ ΠΙΣΤΩΤΙΚΟΥ
-                if 'Πιστωτικό' not in st.session_state.df_s.columns:
-                    st.session_state.df_s['Πιστωτικό'] = 0.0
+                st.metric("Υπόλοιπο (με συνυπολογισμό Έναντι)", f"{final_balance:.2f}€")
                 
-                raw_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
-                try:
-                    current_credit = float(raw_credit) if pd.notna(raw_credit) and str(raw_credit).strip() != "" else 0.0
-                except:
-                    current_credit = 0.0
-                
-                # Το πραγματικό υπόλοιπο προς πληρωμή
-                actual_balance = round(float(unpaid_sum) - current_credit, 2)
-
-                st.metric("Υπόλοιπο προς πληρωμή", f"{max(0, actual_balance)}€")
-                st.caption(f"Διαθέσιμο πιστωτικό (έναντι): {current_credit:.2f}€")
-                
-                # Σχεδιάζουμε 3 στήλες για τα κουμπιά
+                # 3. ΚΟΥΜΠΙΑ
                 col1, col2, col3 = st.columns([1, 1.2, 1.2])
-
                 with col1:
                     if st.button("Εξόφληση όλων", key=f"pay_all_{sel}"):
                         st.session_state.df_l.loc[unpaid_mask, 'Πληρώθηκε'] = 'Ναι'
-                        # Μηδενίζουμε το πιστωτικό αφού εξοφλήθηκαν όλα
                         st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = 0.0
                         save_all(); st.rerun()
-
                 with col2:
-                    custom_amount = st.number_input("Ποσό Πληρωμής (€)", min_value=0.0, step=5.0, key=f"amt_in_{sel}")
-
+                    custom_amount = st.number_input("Ποσό για προσθήκη στο Έναντι (€)", min_value=0.0, step=5.0, key=f"amt_in_{sel}")
                 with col3:
-                    if st.button("Εξόφληση Χ ποσού", key=f"pay_x_{sel}"):
+                    if st.button("Προσθήκη στο Έναντι", key=f"pay_x_{sel}"):
                         if custom_amount > 0:
-                            # 1. Προσθήκη του νέου ποσού στο ήδη υπάρχον πιστωτικό
                             old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό'])
-                            total_available = old_credit + custom_amount
-                            
-                            # 2. Υπολογισμός χρεών
-                            unpaid_mask = (
-                                (st.session_state.df_l['Μαθητής'] == sel) & 
-                                (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & 
-                                (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
-                            )
-                            # Παίρνουμε τα μαθήματα που χρωστάει
-                            unpaid_lessons = st.session_state.df_l[unpaid_mask]
-                            
-                            # 3. Εξόφληση μαθημάτων με τη σειρά
-                            remaining_credit = total_available
-                            for idx, row in unpaid_lessons.iterrows():
-                                cost = row['Ποσό']
-                                if remaining_credit >= cost:
-                                    st.session_state.df_l.at[idx, 'Πληρώθηκε'] = 'Ναι'
-                                    remaining_credit -= cost
-                                else:
-                                    break # Δεν φτάνουν τα χρήματα για το επόμενο
-                            
-                            # 4. Αποθήκευση του υπολοίπου που περίσσεψε
-                            st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(remaining_credit, 2)
-                            
-                            save_all()
-                            st.success(f"Εξοφλήθηκε! Υπόλοιπο έναντι: {round(remaining_credit, 2)}€")
-                            st.rerun()
-                        else:
-                            st.error("Εισάγετε ποσό > 0")
+                            st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + custom_amount, 2)
+                            save_all(); st.success("Προστέθηκε!"); st.rerun()
             else:
                 st.warning("Γίνεται φόρτωση των δεδομένων...")
                 
