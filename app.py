@@ -319,7 +319,16 @@ def show_dashboard():
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("☁️ iCloud Sync")
-        if st.button("🔄 Sync Now"): auto_sync(); st.rerun()
+        # Δημιουργούμε δύο υπο-στήλες για να μπουν τα κουμπιά δίπλα-δίπλα
+        sub_c1, sub_c2 = st.columns(2)
+        with sub_c1:
+            if st.button("🔄 Sync Now"): 
+                auto_sync()
+                st.rerun()
+        with sub_c2:
+            if st.button("🔄 Ανανέωση"): 
+                st.rerun()
+                
     with c2:
         st.subheader("📅 Διαγωνίσματα")
         exams = st.session_state.df_n[st.session_state.df_n['Διαγωνίσματα'].notna() & (st.session_state.df_n['Διαγωνίσματα'] != "")]
