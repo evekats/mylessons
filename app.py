@@ -565,10 +565,13 @@ def show_student_management():
                         f_link = os.path.join(UPLOAD_DIR, uploaded_file.name)
                         with open(f_link, "wb") as f: f.write(uploaded_file.getbuffer())
                     new_n = pd.DataFrame([[sel, datetime.now().strftime('%d/%m/%Y'), nt, f_link, ex_date.strftime('%Y-%m-%d') if ex_date else ""]], columns=st.session_state.df_n.columns)
-                    st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True); save_all(); st.rerun()
+                    st.session_state.df_n = pd.concat([st.session_state.df_n, new_n], ignore_index=True)
+                    save_all()
+                    st.rerun()
             
             st.subheader("Ιστορικό Σημειώσεων")
             student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
+            
             if student_notes.empty:
                 st.info("Δεν υπάρχουν σημειώσεις.")
             else:
@@ -576,7 +579,7 @@ def show_student_management():
                     with st.container(border=True):
                         c1, c2 = st.columns([0.85, 0.15])
                         c1.markdown(f"**📅 {nr['Ημερομηνία']}**")
-                        if nr['Διαγωνίσματα'] and nr['Διαγωνίσματα'] != "":
+                        if nr['Διαγωνίσματα']:
                             try:
                                 formatted_exam = datetime.strptime(nr['Διαγωνίσματα'], '%Y-%m-%d').strftime('%d/%m/%Y')
                                 c1.error(f"🚨 Διαγώνισμα: {formatted_exam}")
@@ -585,8 +588,24 @@ def show_student_management():
                         if nr['Αρχείο']: st.link_button("📂 Αρχείο", nr['Αρχείο'])
                         if c2.button("🗑️", key=f"dn_{idx}"):
                             st.session_state.df_n = st.session_state.df_n.drop(idx).reset_index(drop=True)
-                            save_all(); st.rerun()
+                            save_all()
+                            st.rerun()
 
+            st.divider()
+            st.subheader("📜 Ιστορικό Μαθημάτων & Πληρωμών")
+            
+            history_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
+                           ((st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε') | \
+                            (st.session_state.df_l['Πληρώθηκε'] == 'Ναι') | \
+                            (st.session_state.df_l['Ποσό'] > 0))
+            
+            student_history = st.session_state.df_l[history_mask].copy()
+            
+            if not student_history.empty:
+                student_history = student_history.sort_values(by='Ημερομηνία', ascending=False)
+                st.dataframe(student_history[['Ημερομηνία', 'Μάθημα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], use_container_width=True)
+            else:
+                st.info("Δεν υπάρχει ιστορικό μαθημάτων ή πληρωμών.")
         with t3:
             hist = st.session_state.df_l[
                 (st.session_state.df_l['Μαθητής'] == sel) & 
