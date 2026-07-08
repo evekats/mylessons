@@ -554,7 +554,6 @@ def show_student_management():
                 st.warning("Γίνεται φόρτωση των δεδομένων...")
                 
         with t2:
-            # --- ΦΟΡΜΑ ΣΗΜΕΙΩΣΕΩΝ ---
             with st.form("note_page", clear_on_submit=True):
                 nt = st.text_area("Σημειώσεις Μαθήματος")
                 ex_date = st.date_input("Προγραμματισμός Διαγωνίσματος", value=None, format="DD/MM/YYYY")
@@ -570,7 +569,6 @@ def show_student_management():
                     save_all()
                     st.rerun()
             
-            # --- ΙΣΤΟΡΙΚΟ ΣΗΜΕΙΩΣΕΩΝ ---
             st.subheader("Ιστορικό Σημειώσεων")
             student_notes = st.session_state.df_n[st.session_state.df_n['Μαθητής'] == sel].iloc[::-1]
             if not student_notes.empty:
@@ -580,23 +578,18 @@ def show_student_management():
                         st.write(nr['Σημειώσεις'])
             
             st.divider()
-            
-            # --- ΙΣΤΟΡΙΚΟ ΜΑΘΗΜΑΤΩΝ & ΠΛΗΡΩΜΩΝ ---
             st.subheader("📜 Ιστορικό Μαθημάτων & Πληρωμών")
             
-            # Εμφάνιση του τρέχοντος πιστωτικού υπόλοιπου
+            # Εμφάνιση πιστωτικού
             student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
             current_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
             st.info(f"Τρέχον Πιστωτικό (Έναντι): {current_credit:.2f} €")
             
-            # ΑΦΑΙΡΕΣΑΜΕ ΤΟ ΦΙΛΤΡΟ: Εμφανίζουμε όλο το ιστορικό για τον μαθητή
+            # Εμφάνιση όλου του ιστορικού από το df_l (μαθήματα + πληρωμές)
             history = st.session_state.df_l[st.session_state.df_l['Μαθητής'] == sel].copy()
             
             if not history.empty:
-                # Ταξινόμηση ώστε τα πιο πρόσφατα να είναι πάνω[cite: 1]
                 history = history.sort_values(by='Ημερομηνία', ascending=False)
-                
-                # Εμφάνιση του πίνακα[cite: 1]
                 st.dataframe(
                     history[['Ημερομηνία', 'Ώρα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], 
                     use_container_width=True
