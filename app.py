@@ -594,6 +594,7 @@ def show_student_management():
             st.divider()
             st.subheader("📜 Ιστορικό Μαθημάτων & Πληρωμών")
             
+            # Διόρθωση: Χρησιμοποιούμε τη στήλη 'Μαθητής' αντί για 'Μάθημα' και στήλες που όντως υπάρχουν
             history_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
                            ((st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε') | \
                             (st.session_state.df_l['Πληρώθηκε'] == 'Ναι') | \
@@ -603,7 +604,8 @@ def show_student_management():
             
             if not student_history.empty:
                 student_history = student_history.sort_values(by='Ημερομηνία', ascending=False)
-                st.dataframe(student_history[['Ημερομηνία', 'Μάθημα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], use_container_width=True)
+                # Χρήση ονομάτων στηλών που όντως υπάρχουν στο df_l σου
+                st.dataframe(student_history[['Ημερομηνία', 'Ώρα', 'Ποσό', 'Κατάσταση', 'Πληρώθηκε']], use_container_width=True)
             else:
                 st.info("Δεν υπάρχει ιστορικό μαθημάτων ή πληρωμών.")
         with t3:
