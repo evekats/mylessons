@@ -493,13 +493,13 @@ def show_student_management():
         
         with t1:
             if 'df_l' in st.session_state:
+                # ΟΡΙΣΜΟΣ STUDENT_IDX (για να μην βγάζει error)
                 student_idx = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel].index[0]
-                # 1. ΒΕΒΑΙΩΣΗ ΟΤΙ Ο ΜΑΘΗΤΗΣ ΕΧΕΙ ΠΙΣΤΩΤΙΚΟ
+                
+                # 1. ΑΥΤΟΜΑΤΗ ΕΞΟΦΛΗΣΗ (ΚΑΙΕΙ ΤΟ ΕΝΑΝΤΙ ΓΙΑ ΝΑ ΚΛΕΙΝΕΙ ΜΑΘΗΜΑΤΑ)
                 if 'Πιστωτικό' not in st.session_state.df_s.columns:
                     st.session_state.df_s['Πιστωτικό'] = 0.0
                 
-                # 2. ΑΥΤΟΜΑΤΗ ΕΞΟΦΛΗΣΗ ΜΟΝΟ ΤΩΝ ΟΛΟΚΛΗΡΩΜΕΝΩΝ (Η "ΑΠΟΘΗΚΗ")
-                # Παίρνουμε όλα τα απλήρωτα ολοκληρωμένα μαθήματα
                 mask = (st.session_state.df_l['Μαθητής'] == sel) & \
                        (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & \
                        (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
@@ -513,27 +513,31 @@ def show_student_management():
                             st.session_state.df_l.at[idx, 'Πληρώθηκε'] = 'Ναι'
                             current_credit -= row['Ποσό']
                         else:
-                            break # Δεν φτάνει για το επόμενο μάθημα
-                    
+                            break
                     st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(current_credit, 2)
-                    save_all() # Αποθηκεύουμε αμέσως τις αλλαγές
+                    save_all()
 
-                # 3. ΥΠΟΛΟΓΙΣΜΟΣ ΤΟΥ ΠΡΑΓΜΑΤΙΚΟΥ ΥΠΟΛΟΙΠΟΥ
-                # Τώρα που τα μαθήματα έχουν γίνει "Ναι", το υπόλοιπο είναι απλά το άθροισμα των υπολοίπων "Όχι"
-                final_unpaid_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
-                                    (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & \
-                                    (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
+                # 2. ΥΠΟΛΟΓΙΣΜΟΣ ΥΠΟΛΟΙΠΟΥ: (ΟΛΑ ΤΑ ΑΠΛΗΡΩΤΑ) ΜΕΙΟΝ (ΕΝΑΝΤΙ)
+                # Τα απλήρωτα μαθήματα που έχουν μείνει (αφού κάηκε το έναντι)
+                remaining_mask = (st.session_state.df_l['Μαθητής'] == sel) & \
+                                 (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & \
+                                 (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
                 
-                final_balance = st.session_state.df_l[final_unpaid_mask]['Ποσό'].sum()
+                total_due = st.session_state.df_l[remaining_mask]['Ποσό'].sum()
                 
-                st.metric("Υπόλοιπο προς πληρωμή", f"{final_balance:.2f}€")
-                st.caption(f"Διαθέσιμο Έναντι: {current_credit:.2f}€")
+                # Το υπόλοιπο που ζήτησες: Χρέος - ΕΝΑΝΤΙ
+                # (Αν το έναντι είναι 0, δείχνει το χρέος. Αν το έναντι καλύπτει μέρος, δείχνει το υπόλοιπο)
+                actual_balance = total_due - current_credit
+                
+                # Εμφάνιση: Αν είναι αρνητικό, σημαίνει ότι υπάρχει υπόλοιπο έναντι (καβά)
+                st.metric("Τελικό Υπόλοιπο προς πληρωμή", f"{actual_balance:.2f}€")
+                st.caption(f"Πιστωτικό που απομένει: {current_credit:.2f}€")
 
-                # 4. ΚΟΥΜΠΙΑ
+                # 3. ΚΟΥΜΠΙΑ
                 col1, col2, col3 = st.columns([1, 1.2, 1.2])
                 with col1:
                     if st.button("Εξόφληση όλων", key=f"pay_all_{sel}"):
-                        st.session_state.df_l.loc[final_unpaid_mask, 'Πληρώθηκε'] = 'Ναι'
+                        st.session_state.df_l.loc[remaining_mask, 'Πληρώθηκε'] = 'Ναι'
                         st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = 0.0
                         save_all(); st.rerun()
                 with col2:
@@ -541,8 +545,7 @@ def show_student_management():
                 with col3:
                     if st.button("Προσθήκη στο Έναντι", key=f"pay_x_{sel}"):
                         if custom_amount > 0:
-                            old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό'])
-                            st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + custom_amount, 2)
+                            st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(current_credit + custom_amount, 2)
                             save_all(); st.rerun()
             else:
                 st.warning("Γίνεται φόρτωση των δεδομένων...")
