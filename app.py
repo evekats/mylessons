@@ -20,40 +20,43 @@ def auto_apply_credits():
     for idx, student in st.session_state.df_s.iterrows():
         student_name = student['Όνομα']
         
-        # Καθαρισμός του υπολοίπου για αποφυγή ValueError
-        val = student.get('Πιστωτικό', 0.0)
+        # Το πιστωτικό εδώ είναι ΠΑΝΤΑ θετικός αριθμός (τα χρήματα που "περισσεύουν")
         try:
-            # Μετατρέπουμε σε string, αφαιρούμε κενά και μετατρέπουμε σε float
-            balance = float(str(val).strip())
+            credit = float(str(student.get('Πιστωτικό', 0.0)).strip())
         except (ValueError, TypeError):
-            balance = 0.0
-            st.session_state.df_s.at[idx, 'Πιστωτικό'] = 0.0
+            credit = 0.0
         
-        # Αν το balance είναι < 0 (προπληρωμή)
-        if balance < 0:
+        # Αν υπάρχει προπληρωμένο ποσό
+        if credit > 0:
             unpaid_mask = (
                 (st.session_state.df_l['Μαθητής'] == student_name) & 
                 (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & 
                 (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
             )
-            # Παίρνουμε τα ανεξόφλητα μαθήματα
-            unpaid_lessons = st.session_state.df_l[unpaid_mask]
             
-            for l_idx, lesson in unpaid_lessons.iterrows():
+            # Παίρνουμε τα ανεξόφλητα και τα ταξινομούμε για να πληρωθούν τα παλαιότερα πρώτα
+            unpaid_indices = st.session_state.df_l[unpaid_mask].sort_values(by=['Ημερομηνία', 'Ώρα']).index
+            
+            for l_idx in unpaid_indices:
+                if credit <= 0: 
+                    break
+                
                 try:
-                    lesson_price = float(lesson['Ποσό'])
+                    lesson_price = float(st.session_state.df_l.at[l_idx, 'Ποσό'])
                 except (ValueError, TypeError):
                     lesson_price = 0.0
                 
-                # Αν το balance (π.χ. -20) + κόστος (10) <= 0, καλύπτεται πλήρως
-                if balance + lesson_price <= 0:
-                    balance += lesson_price
+                # Αν το ποσό στον "κουμπαρά" φτάνει για να εξοφληθεί όλο το μάθημα
+                if credit >= lesson_price:
                     st.session_state.df_l.at[l_idx, 'Πληρώθηκε'] = 'Ναι'
+                    credit -= lesson_price
                 else:
+                    # Το ποσό ΔΕΝ φτάνει (π.χ. κόστος 30, κουμπαράς 10). 
+                    # Σταματάμε εδώ. Το μάθημα μένει ανεξόφλητο.
                     break
             
-            # Αποθήκευση του νέου υπολοίπου
-            st.session_state.df_s.at[idx, 'Πιστωτικό'] = round(balance, 2)
+            # Αποθήκευση του νέου (μειωμένου) υπολοίπου προπληρωμής
+            st.session_state.df_s.at[idx, 'Πιστωτικό'] = round(credit, 2)
 
 def auto_collapse_sidebar():
     components.html(
@@ -306,6 +309,7 @@ def check_and_move_expired_lessons():
                 except:
                     continue
     if changed:
+        auto_apply_credits() # <--- Προστέθηκε για να ελέγχει απευθείας τα υπόλοιπα
         save_all()
 
 # --- 6. ΕΝΟΤΗΤΕΣ ΕΦΑΡΜΟΓΗΣ ---
@@ -500,7 +504,6 @@ def show_student_management():
         
         with t1:
             if 'df_l' in st.session_state:
-                # ΔΙΟΡΘΩΣΗ: Εντοπισμός του student_idx με ασφάλεια
                 student_match = st.session_state.df_s[st.session_state.df_s['Όνομα'] == sel]
                 if not student_match.empty:
                     student_idx = student_match.index[0]
@@ -511,20 +514,27 @@ def show_student_management():
                         (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
                     )
 
+                    # Άθροισμα των μαθημάτων που ΔΕΝ έχουν καλυφθεί
                     unpaid_sum = st.session_state.df_l[unpaid_mask]['Ποσό'].sum()
                     
                     if 'Πιστωτικό' not in st.session_state.df_s.columns:
                         st.session_state.df_s['Πιστωτικό'] = 0.0
                     
-                    raw_credit = st.session_state.df_s.at[student_idx, 'Πιστωτικό']
                     try:
-                        current_credit = float(raw_credit) if pd.notna(raw_credit) and str(raw_credit).strip() != "" else 0.0
+                        current_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό'])
                     except:
                         current_credit = 0.0
                     
+                    # Υπολογισμός τελικού υπολοίπου: (Χρέη) - (Προπληρωμές)
                     actual_balance = round(float(unpaid_sum) - current_credit, 2)
-                    st.metric("Υπόλοιπο προς πληρωμή", f"{max(0, actual_balance)}€")
-                    st.caption(f"Διαθέσιμο πιστωτικό (έναντι): {current_credit:.2f}€")
+                    
+                    # Εμφάνιση ΜΙΑΣ μόνο ένδειξης (αρνητικό = προπληρωμή, θετικό = χρέος)
+                    if actual_balance < 0:
+                        st.metric("Συνολικό Υπόλοιπο", f"{actual_balance:.2f} €", "Προπληρωμή", delta_color="normal")
+                    elif actual_balance > 0:
+                        st.metric("Συνολικό Υπόλοιπο", f"{actual_balance:.2f} €", "Οφειλή", delta_color="inverse")
+                    else:
+                        st.metric("Συνολικό Υπόλοιπο", "0.00 €", "Εξοφλημένος", delta_color="off")
                     
                     col1, col2, col3 = st.columns([1, 1.2, 1.2])
                     with col1:
@@ -538,10 +548,12 @@ def show_student_management():
                         if st.button("Εξόφληση Χ ποσού", key=f"pay_x_{sel}"):
                             if custom_amount > 0:
                                 old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό'])
+                                # Προσθέτουμε τα χρήματα στον "κουμπαρά" και καλούμε τη συνάρτηση να τα μοιράσει
                                 st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + custom_amount, 2)
                                 auto_apply_credits()
-                                save_all(); st.success("Εξοφλήθηκε!"); st.rerun()
-                            else: st.error("Εισάγετε ποσό > 0")
+                                save_all(); st.success("Η πληρωμή καταχωρήθηκε!"); st.rerun()
+                            else: 
+                                st.error("Εισάγετε ποσό > 0")
                 else:
                     st.error("Ο μαθητής δεν βρέθηκε στη βάση δεδομένων.")
             else:
