@@ -400,18 +400,42 @@ def show_finance_section():
                     new_h = c2.number_input("Ώρες", value=float(current_hours), step=0.25, key=f"h_{i}", label_visibility="collapsed")
                     if c2.button("💾", key=f"sv_{i}"):
                         s_price_row = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
-                        s_price = float(s_price_row['Τιμή'].values[0]) if not s_price_row.empty else 0.0
-                        st.session_state.df_l.at[i, 'Λήξη'] = (t1 + timedelta(hours=new_h)).strftime('%H:%M')
-                        
-                        # Ενημέρωση και των δύο στηλών με το νέο υπολογισμένο ποσό
-                        calculated_price = round(new_h * s_price, 2)
-                        st.session_state.df_l.at[i, 'Ποσό'] = calculated_price
-                        st.session_state.df_l.at[i, 'Οφειλόμενο Ποσό'] = calculated_price
-                        
-                        if not str(st.session_state.df_l.at[i, 'UID']).startswith('locked_'):
-                            st.session_state.df_l.at[i, 'UID'] = f"locked_{st.session_state.df_l.at[i, 'UID']}"
-                        st.session_state[f"edit_{i}"] = False
-                        save_all(); st.rerun()
+                        if not s_price_row.empty:
+                            student_idx = s_price_row.index[0]
+                            s_price = float(s_price_row['Τιμή'].values[0])
+                            
+                            # 1. Βρίσκουμε πόσα χρήματα είχαν ήδη αφαιρεθεί/πληρωθεί για αυτό το μάθημα
+                            old_total = float(r['Ποσό'])
+                            old_owed = float(r['Οφειλόμενο Ποσό']) if 'Οφειλόμενο Ποσό' in r else old_total
+                            already_paid = round(old_total - old_owed, 2)
+                            
+                            # 2. Υπολογίζουμε το νέο συνολικό κόστος
+                            new_total = round(new_h * s_price, 2)
+                            
+                            # 3. Υπολογίζουμε το νέο οφειλόμενο ποσό αφαιρώντας όσα είχαν ήδη πληρωθεί
+                            new_owed = round(new_total - already_paid, 2)
+                            
+                            # Έλεγχος αν οι ώρες μειώθηκαν τόσο που το "έναντι" καλύπτει παραπάνω από το νέο κόστος
+                            if new_owed < 0:
+                                refund_amount = abs(new_owed)
+                                # Επιστρέφουμε τη διαφορά στο γενικό Πιστωτικό του μαθητή
+                                old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό'])
+                                st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + refund_amount, 2)
+                                new_owed = 0.0
+                                st.session_state.df_l.at[i, 'Πληρώθηκε'] = 'Ναι'
+                            
+                            # 4. Ενημέρωση των στοιχείων του μαθήματος
+                            st.session_state.df_l.at[i, 'Λήξη'] = (t1 + timedelta(hours=new_h)).strftime('%H:%M')
+                            st.session_state.df_l.at[i, 'Ποσό'] = new_total
+                            st.session_state.df_l.at[i, 'Οφειλόμενο Ποσό'] = new_owed
+                            
+                            if not str(st.session_state.df_l.at[i, 'UID']).startswith('locked_'):
+                                st.session_state.df_l.at[i, 'UID'] = f"locked_{st.session_state.df_l.at[i, 'UID']}"
+                            
+                            st.session_state[f"edit_{i}"] = False
+                            auto_apply_credits()  # Τρέχει ξανά έλεγχο σε περίπτωση που δημιουργήθηκε νέο πιστωτικό
+                            save_all()
+                            st.rerun()
                 else:
                     # Εδώ έχουμε το μολυβάκι για επεξεργασία και το ✖️ για διαγραφή
                     col_edit, col_del = c2.columns(2)
