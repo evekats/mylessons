@@ -17,16 +17,18 @@ def auto_apply_credits():
     if 'Πιστωτικό' not in st.session_state.df_s.columns:
         st.session_state.df_s['Πιστωτικό'] = 0.0
     
+    # Αν για κάποιο λόγο δεν έχει φορτωθεί η νέα στήλη, τη δημιουργούμε προσωρινά
+    if 'Οφειλόμενο Ποσό' not in st.session_state.df_l.columns:
+        st.session_state.df_l['Οφειλόμενο Ποσό'] = st.session_state.df_l['Ποσό']
+
     for idx, student in st.session_state.df_s.iterrows():
         student_name = student['Όνομα']
         
-        # Το πιστωτικό εδώ είναι ΠΑΝΤΑ θετικός αριθμός (τα χρήματα που "περισσεύουν")
         try:
             credit = float(str(student.get('Πιστωτικό', 0.0)).strip())
         except (ValueError, TypeError):
             credit = 0.0
         
-        # Αν υπάρχει προπληρωμένο ποσό
         if credit > 0:
             unpaid_mask = (
                 (st.session_state.df_l['Μαθητής'] == student_name) & 
@@ -34,7 +36,7 @@ def auto_apply_credits():
                 (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
             )
             
-            # Παίρνουμε τα ανεξόφλητα και τα ταξινομούμε για να πληρωθούν τα παλαιότερα πρώτα
+            # Ταξινομούμε ώστε να πληρωθούν πρώτα τα παλαιότερα μαθήματα
             unpaid_indices = st.session_state.df_l[unpaid_mask].sort_values(by=['Ημερομηνία', 'Ώρα']).index
             
             for l_idx in unpaid_indices:
@@ -42,20 +44,25 @@ def auto_apply_credits():
                     break
                 
                 try:
-                    lesson_price = float(st.session_state.df_l.at[l_idx, 'Ποσό'])
+                    owed_amt = float(st.session_state.df_l.at[l_idx, 'Οφειλόμενο Ποσό'])
                 except (ValueError, TypeError):
-                    lesson_price = 0.0
+                    owed_amt = float(st.session_state.df_l.at[l_idx, 'Ποσό'])
                 
-                # Αν το ποσό στον "κουμπαρά" φτάνει για να εξοφληθεί όλο το μάθημα
-                if credit >= lesson_price:
+                if owed_amt <= 0:
+                    continue
+                
+                if credit >= owed_amt:
+                    # Πλήρης εξόφληση του συγκεκριμένου μαθήματος
+                    st.session_state.df_l.at[l_idx, 'Οφειλόμενο Ποσό'] = 0.0
                     st.session_state.df_l.at[l_idx, 'Πληρώθηκε'] = 'Ναι'
-                    credit -= lesson_price
+                    credit -= owed_amt
                 else:
-                    # Το ποσό ΔΕΝ φτάνει (π.χ. κόστος 30, κουμπαράς 10). 
-                    # Σταματάμε εδώ. Το μάθημα μένει ανεξόφλητο.
-                    break
+                    # Μερική εξόφληση: Μειώνεται η οφειλή του μαθήματος, το μάθημα παραμένει "Όχι"
+                    st.session_state.df_l.at[l_idx, 'Οφειλόμενο Ποσό'] = round(owed_amt - credit, 2)
+                    credit = 0.0
+                    break # Ο κουμπαράς άδειασε, σταματάμε
             
-            # Αποθήκευση του νέου (μειωμένου) υπολοίπου προπληρωμής
+            # Ενημέρωση του εναπομείναντος πιστωτικού στον μαθητή
             st.session_state.df_s.at[idx, 'Πιστωτικό'] = round(credit, 2)
 
 def auto_collapse_sidebar():
@@ -186,9 +193,17 @@ def load_data(username):
     
     df_l_raw = load_data_from_sheet("lessons", username)
     if df_l_raw.empty:
-        st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
+        # Προσθήκη της στήλης 'Οφειλόμενο Ποσό' στα default columns
+        st.session_state.df_l = pd.DataFrame(columns=["Μαθητής", "Ημερομηνία", "Ώρα", "Λήξη", "Ποσό", "Οφειλόμενο Ποσό", "Κατάσταση", "Πληρώθηκε", "UID"])
     else:
         df_l_raw['Ποσό'] = df_l_raw['Ποσό'].apply(clean_currency)
+        
+        # ΕΔΩ ΜΠΑΙΝΕΙ Η ΔΙΟΡΘΩΣΗ: Αν δεν υπάρχει η στήλη στο Sheets, τη δημιουργεί παίρνοντας τις τιμές του 'Ποσό'
+        if 'Οφειλόμενο Ποσό' not in df_l_raw.columns:
+            df_l_raw['Οφειλόμενο Ποσό'] = df_l_raw['Ποσό']
+        else:
+            df_l_raw['Οφειλόμενο Ποσό'] = df_l_raw['Οφειλόμενο Ποσό'].apply(clean_currency)
+            
         df_l_raw = df_l_raw.drop_duplicates(subset=['Μαθητής', 'Ημερομηνία', 'Ώρα'], keep='last')
         st.session_state.df_l = df_l_raw
 
@@ -278,7 +293,8 @@ def auto_sync():
                 # Αν η ώρα του μαθήματος πέρασε, γίνεται αυτόματα "Ολοκληρώθηκε"
                 status = "Ολοκληρώθηκε" if now >= end else "Προγραμματισμένο"
                 
-                new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, status, "Όχι", occurrence_uid])
+                # Προσθέτουμε το 'price' δύο φορές στη σειρά (για Ποσό και Οφειλόμενο Ποσό)
+                new_lessons.append([match['Όνομα'], d_str, t_start, t_end, price, price, status, "Όχι", occurrence_uid])
         
         if new_lessons:
             new_df = pd.DataFrame(new_lessons, columns=st.session_state.df_l.columns)
@@ -356,7 +372,8 @@ def show_finance_section():
                     if st.form_submit_button("Προσθήκη"):
                         uid_m = f"manual_{datetime.now().timestamp()}"
                         ts, te = (t_m.split("-")[0].strip(), t_m.split("-")[1].strip()) if "-" in t_m else (t_m, t_m)
-                        new_l = pd.DataFrame([[sel_m, d_m, ts, te, float(p_m), "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
+                        # Προσθήκη του float(p_m) δύο φορές (για Ποσό και Οφειλόμενο Ποσό)
+                        new_l = pd.DataFrame([[sel_m, d_m, ts, te, float(p_m), float(p_m), "Ολοκληρώθηκε", "Όχι", uid_m]], columns=st.session_state.df_l.columns)
                         st.session_state.df_l = pd.concat([st.session_state.df_l, new_l], ignore_index=True)
                         auto_apply_credits() # <--- ΠΡΟΣΘΗΚΗ ΕΔΩ
                         save_all()
@@ -385,7 +402,12 @@ def show_finance_section():
                         s_price_row = st.session_state.df_s[st.session_state.df_s['Όνομα'] == r['Μαθητής']]
                         s_price = float(s_price_row['Τιμή'].values[0]) if not s_price_row.empty else 0.0
                         st.session_state.df_l.at[i, 'Λήξη'] = (t1 + timedelta(hours=new_h)).strftime('%H:%M')
-                        st.session_state.df_l.at[i, 'Ποσό'] = round(new_h * s_price, 2)
+                        
+                        # Ενημέρωση και των δύο στηλών με το νέο υπολογισμένο ποσό
+                        calculated_price = round(new_h * s_price, 2)
+                        st.session_state.df_l.at[i, 'Ποσό'] = calculated_price
+                        st.session_state.df_l.at[i, 'Οφειλόμενο Ποσό'] = calculated_price
+                        
                         if not str(st.session_state.df_l.at[i, 'UID']).startswith('locked_'):
                             st.session_state.df_l.at[i, 'UID'] = f"locked_{st.session_state.df_l.at[i, 'UID']}"
                         st.session_state[f"edit_{i}"] = False
@@ -508,27 +530,25 @@ def show_student_management():
                 if not student_match.empty:
                     student_idx = student_match.index[0]
                     
+                    if 'Οφειλόμενο Ποσό' not in st.session_state.df_l.columns:
+                        st.session_state.df_l['Οφειλόμενο Ποσό'] = st.session_state.df_l['Ποσό']
+                    
                     unpaid_mask = (
                         (st.session_state.df_l['Μαθητής'] == sel) & 
                         (st.session_state.df_l['Πληρώθηκε'] == 'Όχι') & 
                         (st.session_state.df_l['Κατάσταση'] == 'Ολοκληρώθηκε')
                     )
 
-                    # Άθροισμα των μαθημάτων που ΔΕΝ έχουν καλυφθεί
-                    unpaid_sum = st.session_state.df_l[unpaid_mask]['Ποσό'].sum()
-                    
-                    if 'Πιστωτικό' not in st.session_state.df_s.columns:
-                        st.session_state.df_s['Πιστωτικό'] = 0.0
+                    # Το άθροισμα πλέον υπολογίζεται από τη στήλη των πραγματικών οφειλών
+                    unpaid_sum = pd.to_numeric(st.session_state.df_l[unpaid_mask]['Οφειλόμενο Ποσό'], errors='coerce').sum()
                     
                     try:
                         current_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό'])
                     except:
                         current_credit = 0.0
                     
-                    # Υπολογισμός τελικού υπολοίπου: (Χρέη) - (Προπληρωμές)
                     actual_balance = round(float(unpaid_sum) - current_credit, 2)
                     
-                    # Εμφάνιση ΜΙΑΣ μόνο ένδειξης (αρνητικό = προπληρωμή, θετικό = χρέος)
                     if actual_balance < 0:
                         st.metric("Συνολικό Υπόλοιπο", f"{actual_balance:.2f} €", "Προπληρωμή", delta_color="normal")
                     elif actual_balance > 0:
@@ -536,9 +556,23 @@ def show_student_management():
                     else:
                         st.metric("Συνολικό Υπόλοιπο", "0.00 €", "Εξοφλημένος", delta_color="off")
                     
+                    # Λίστα Εκκρεμών με τις δύο στήλες
+                    st.write("### Αναλυτικές Εκκρεμότητες Μαθημάτων")
+                    student_unpaid = st.session_state.df_l[unpaid_mask]
+                    if student_unpaid.empty:
+                        st.info("Δεν υπάρχουν εκκρεμή οφειλόμενα μαθήματα.")
+                    else:
+                        for l_idx, hr in student_unpaid.iterrows():
+                            with st.container(border=True):
+                                col_a, col_b = st.columns([6, 4])
+                                col_a.write(f"📅 {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']}")
+                                col_b.write(f"📊 Συνολικό Κόστος: {float(hr['Ποσό']):.2f}€ | ⏳ Οφειλόμενο Ποσό: {float(hr['Οφειλόμενο Ποσό']):.2f}€")
+
+                    st.write("---")
                     col1, col2, col3 = st.columns([1, 1.2, 1.2])
                     with col1:
                         if st.button("Εξόφληση όλων", key=f"pay_all_{sel}"):
+                            st.session_state.df_l.loc[unpaid_mask, 'Οφειλόμενο Ποσό'] = 0.0
                             st.session_state.df_l.loc[unpaid_mask, 'Πληρώθηκε'] = 'Ναι'
                             st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = 0.0
                             save_all(); st.rerun()
@@ -548,7 +582,6 @@ def show_student_management():
                         if st.button("Εξόφληση Χ ποσού", key=f"pay_x_{sel}"):
                             if custom_amount > 0:
                                 old_credit = float(st.session_state.df_s.at[student_idx, 'Πιστωτικό'])
-                                # Προσθέτουμε τα χρήματα στον "κουμπαρά" και καλούμε τη συνάρτηση να τα μοιράσει
                                 st.session_state.df_s.at[student_idx, 'Πιστωτικό'] = round(old_credit + custom_amount, 2)
                                 auto_apply_credits()
                                 save_all(); st.success("Η πληρωμή καταχωρήθηκε!"); st.rerun()
@@ -603,26 +636,17 @@ def show_student_management():
             if hist.empty:
                 st.info("Δεν υπάρχουν ολοκληρωμένα μαθήματα.")
             else:
+                if 'Οφειλόμενο Ποσό' not in hist.columns:
+                    hist['Οφειλόμενο Ποσό'] = hist['Ποσό']
                 hist['temp_dt'] = pd.to_datetime(hist['Ημερομηνία'], format="%d/%m/%Y", errors='coerce')
                 hist = hist.sort_values('temp_dt', ascending=False).drop(columns=['temp_dt'])
                 for idx, hr in hist.iterrows():
                     hc1, hc2 = st.columns([9, 1])
                     icon = "✅" if hr['Πληρώθηκε'] == "Ναι" else "⏳"
-                    hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | {hr['Ποσό']:.2f} €")
+                    hc1.write(f"{icon} {hr['Ημερομηνία']} | {hr['Ώρα']} - {hr['Λήξη']} | 📊 Συνολικό Κόστος: {hr['Ποσό']:.2f} € | ⏳ Οφειλόμενο Ποσό: {float(hr['Οφειλόμενο Ποσό']):.2f} €")
                     if hc2.button("🗑️", key=f"del_hist_{idx}"):
-                        st.session_state.df_l = st.session_state.df_l.drop(idx).reset_index(drop=True)
+                        st.session_state.df_l = st.session_state.df_l.drop(idx)
                         save_all(); st.rerun()
-
-def show_settings():
-    st.header("⚙️ Ρυθμίσεις")
-    with st.expander("🔗 iCloud & Password"):
-        with st.form("update_u"):
-            n_url, n_pw = st.text_input("iCloud Link", value=st.session_state.cal_url), st.text_input("Νέος Κωδικός", type="password")
-            if st.form_submit_button("Αποθήκευση"):
-                if update_user_data(st.session_state.user, n_url, n_pw if n_pw else None):
-                    st.session_state.cal_url = n_url; st.success("Ενημερώθηκε!")
-                else: st.error("Σφάλμα.")
-    if st.button("🔴 Διαγραφή Λογαριασμού", type="primary"): delete_user_account(st.session_state.user); st.session_state.clear(); st.rerun()
 
 # --- 7. ΚΥΡΙΑ ΡΟΗ ΕΦΑΡΜΟΓΗΣ ---
 
