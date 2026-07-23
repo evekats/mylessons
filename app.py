@@ -523,7 +523,7 @@ def show_student_management():
         with st.expander("➕ Προσθήκη Μαθητή"):
             with st.form("add_s_new"):
                 n, ph, pr = st.text_input("Όνομα"), st.text_input("Τηλέφωνο"), st.number_input("Τιμή/ώρα", 0.0, format="%.2f")
-                        if st.form_submit_button("Αποθήκευση"):
+            if st.form_submit_button("Αποθήκευση"):
             new_student_df = pd.DataFrame([[n, str(ph), pr, 0.0]], columns=st.session_state.df_s.columns)
             st.session_state.df_s = pd.concat([st.session_state.df_s, new_student_df], ignore_index=True)
             save_all()
